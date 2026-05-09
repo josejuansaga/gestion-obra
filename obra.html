@@ -774,8 +774,255 @@ function projectKeys(projectId) {
         photos: `obra_project_${storageId}_photos_v2`,
     };
 }
+const fsState = {
+    supported: typeof window.showDirectoryPicker === 'function' && typeof indexedDB !== 'undefined',
+    handle: null,
+    status: 'Navegador',
+    saving: false,
+    lastSavedAt: '',
+    error: '',
+    booted: false,
+};
+let _persistTimer = null;
+let _persistPromise = Promise.resolve();
 const BACKUP_KEY = 'obra_backup_latest_v1';
 const BACKUP_FILE_VERSION = 1;
+function storageStatusText() {
+    if (!fsState.supported) return 'Datos en navegador';
+    if (!fsState.handle) return 'Datos en navegador';
+    if (fsState.saving) return 'Guardando en carpeta...';
+    if (fsState.lastSavedAt) return `Carpeta conectada · ${fsState.lastSavedAt}`;
+    return 'Carpeta conectada';
+}
+function refreshStorageStatusUI() {
+    const text = storageStatusText();
+    document.querySelectorAll('[data-storage-status]').forEach(el => { el.textContent = text; });
+    document.querySelectorAll('[data-storage-connect]').forEach(el => {
+        el.textContent = fsState.handle ? 'Carpeta conectada' : 'Conectar carpeta';
+    });
+}
+function formatTimeNow() {
+    return new Date().toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' });
+}
+function openIdb() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open('gestion-obra', 1);
+        req.onupgradeneeded = () => req.result.createObjectStore('kv');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+async function idbGet(key) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction('kv', 'readonly');
+        const req = tx.objectStore('kv').get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+    });
+}
+async function idbSet(key, value) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(value, key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
+async function idbDelete(key) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').delete(key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+    });
+}
+async function ensurePermission(handle, write = false) {
+    if (!handle) return false;
+    const opts = write ? { mode:'readwrite' } : {};
+    if ((await handle.queryPermission(opts)) === 'granted') return true;
+    return (await handle.requestPermission(opts)) === 'granted';
+}
+async function ensureChildDir(parent, name) {
+    return parent.getDirectoryHandle(name, { create:true });
+}
+async function writeFileJson(dirHandle, fileName, data) {
+    const fileHandle = await dirHandle.getFileHandle(fileName, { create:true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(JSON.stringify(data, null, 2));
+    await writable.close();
+}
+async function readFileJson(dirHandle, fileName, fallback = null) {
+    try {
+        const fileHandle = await dirHandle.getFileHandle(fileName);
+        const file = await fileHandle.getFile();
+        return JSON.parse(await file.text());
+    } catch (err) {
+        return fallback;
+    }
+}
+async function folderHasProjectData(handle) {
+    const index = await readFileJson(handle, 'index.json', null);
+    return !!(index && Array.isArray(index.projects));
+}
+async function writeFolderPayload(payload) {
+    if (!fsState.handle) return false;
+    if (!await ensurePermission(fsState.handle, true)) throw new Error('Sin permiso de escritura en la carpeta.');
+    const proyectosDir = await ensureChildDir(fsState.handle, 'proyectos');
+    const expectedDirs = new Set((payload.index.projects || []).map(project => project.storageId || buildProjectStorageId(project)));
+    await writeFileJson(fsState.handle, 'index.json', payload.index);
+    for (const project of payload.index.projects || []) {
+        const entry = (payload.projectData || []).find(item => item.projectId === project.id) || {};
+        const projectDir = await ensureChildDir(proyectosDir, project.storageId || buildProjectStorageId(project));
+        await writeFileJson(projectDir, 'core.json', entry.core || emptyProjectData());
+        await writeFileJson(projectDir, 'docs.json', entry.docs || { entries: emptyDocuments(), blobs: {} });
+        await writeFileJson(projectDir, 'photos.json', entry.photos || { blobs: {} });
+    }
+    if (typeof proyectosDir.values === 'function' && typeof proyectosDir.removeEntry === 'function') {
+        for await (const entry of proyectosDir.values()) {
+            if (entry.kind === 'directory' && !expectedDirs.has(entry.name)) {
+                await proyectosDir.removeEntry(entry.name, { recursive:true }).catch(() => null);
+            }
+        }
+    }
+    return true;
+}
+async function readFolderPayload() {
+    if (!fsState.handle) return null;
+    if (!await ensurePermission(fsState.handle, false)) throw new Error('Sin permiso para leer la carpeta.');
+    const index = await readFileJson(fsState.handle, 'index.json', null);
+    if (!index?.projects || !Array.isArray(index.projects)) return null;
+    const projects = index.projects.map(normalizeProject);
+    const proyectosDir = await fsState.handle.getDirectoryHandle('proyectos', { create:false }).catch(() => null);
+    const projectData = [];
+    for (const project of projects) {
+        const projectDir = proyectosDir
+            ? await proyectosDir.getDirectoryHandle(project.storageId || buildProjectStorageId(project), { create:false }).catch(() => null)
+            : null;
+        projectData.push({
+            projectId: project.id,
+            core: projectDir ? await readFileJson(projectDir, 'core.json', emptyProjectData()) : emptyProjectData(),
+            docs: projectDir ? await readFileJson(projectDir, 'docs.json', { entries: emptyDocuments(), blobs: {} }) : { entries: emptyDocuments(), blobs: {} },
+            photos: projectDir ? await readFileJson(projectDir, 'photos.json', { blobs: {} }) : { blobs: {} },
+        });
+    }
+    return {
+        version: BACKUP_FILE_VERSION,
+        exportedAt: new Date().toISOString(),
+        index: {
+            projects,
+            currentProjectId: index.currentProjectId || null,
+        },
+        projectData,
+    };
+}
+function queueFolderPersist(reason = 'save') {
+    if (!fsState.handle) return;
+    clearTimeout(_persistTimer);
+    _persistTimer = setTimeout(() => { persistToFolder(reason); }, 450);
+}
+function persistToFolder(reason = 'save') {
+    if (!fsState.handle) return Promise.resolve(false);
+    _persistPromise = _persistPromise.then(async () => {
+        fsState.saving = true;
+        fsState.error = '';
+        refreshStorageStatusUI();
+        try {
+            await writeFolderPayload(buildBackupPayload(true));
+            fsState.lastSavedAt = `guardado ${formatTimeNow()}`;
+            return true;
+        } catch (err) {
+            fsState.error = err?.message || String(err);
+            console.error(err);
+            return false;
+        } finally {
+            fsState.saving = false;
+            refreshStorageStatusUI();
+        }
+    });
+    return _persistPromise;
+}
+async function loadFromConnectedFolder(silent = false) {
+    if (!fsState.handle) return false;
+    try {
+        const payload = await readFolderPayload();
+        if (!payload) {
+            if (!silent) alert('La carpeta aun no tiene datos del gestor.');
+            return false;
+        }
+        applyBackupPayload(payload);
+        saveEmergencyBackup();
+        initState();
+        renderAll();
+        fsState.lastSavedAt = `cargado ${formatTimeNow()}`;
+        refreshStorageStatusUI();
+        return true;
+    } catch (err) {
+        fsState.error = err?.message || String(err);
+        refreshStorageStatusUI();
+        if (!silent) alert('No se han podido leer los datos de la carpeta.');
+        return false;
+    }
+}
+async function connectDataFolder() {
+    if (!fsState.supported) {
+        alert('Este navegador no permite guardar en carpeta real. Usa Chrome o Edge.');
+        return;
+    }
+    try {
+        const handle = await window.showDirectoryPicker({ mode:'readwrite' });
+        if (!await ensurePermission(handle, true)) {
+            alert('Necesito permiso para leer y escribir en esa carpeta.');
+            return;
+        }
+        fsState.handle = handle;
+        await idbSet('dataFolderHandle', handle);
+        const hasFolderData = await folderHasProjectData(handle);
+        if (hasFolderData) {
+            const loadFolder = !state.projects.length || confirm('La carpeta ya tiene datos. Aceptar = cargar lo de la carpeta. Cancelar = conservar lo actual y sobrescribir la carpeta.');
+            if (loadFolder) {
+                await loadFromConnectedFolder(true);
+            } else {
+                await persistToFolder('connect');
+            }
+        } else {
+            await persistToFolder('connect');
+        }
+        refreshStorageStatusUI();
+    } catch (err) {
+        if (err?.name === 'AbortError') return;
+        fsState.error = err?.message || String(err);
+        refreshStorageStatusUI();
+        alert('No se ha podido conectar la carpeta.');
+    }
+}
+async function disconnectDataFolder() {
+    fsState.handle = null;
+    fsState.lastSavedAt = '';
+    fsState.error = '';
+    await idbDelete('dataFolderHandle').catch(() => null);
+    refreshStorageStatusUI();
+}
+async function bootFolderPersistence() {
+    if (fsState.booted || !fsState.supported) {
+        refreshStorageStatusUI();
+        return;
+    }
+    fsState.booted = true;
+    try {
+        const handle = await idbGet('dataFolderHandle');
+        if (!handle) { refreshStorageStatusUI(); return; }
+        if (!await ensurePermission(handle, false)) { refreshStorageStatusUI(); return; }
+        fsState.handle = handle;
+        await loadFromConnectedFolder(true);
+    } catch (err) {
+        console.error(err);
+    } finally {
+        refreshStorageStatusUI();
+    }
+}
 function buildBackupPayload(includeBlobs = true) {
     const projects = (state.projects || []).map(normalizeProject);
     return {
@@ -1020,6 +1267,7 @@ function saveIndex() {
         currentProjectId: state.currentProjectId,
     });
     saveEmergencyBackup();
+    queueFolderPersist('index');
 }
 function saveCurrentProject() {
     if (!state.currentProjectId) return;
@@ -1034,6 +1282,7 @@ function saveCurrentProject() {
     docsStore.entries = state.documents;
     writeJSON(keys.docs, docsStore);
     saveEmergencyBackup();
+    queueFolderPersist('project');
 }
 function saveState() { saveCurrentProject(); }
 
@@ -2843,6 +3092,10 @@ function renderProjectsLayout() {
                 <span style="font-size:22px">🏗️</span>
                 <h1>Gestión de Obra</h1>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                    <button class="btn" data-storage-connect onclick="connectDataFolder()" style="font-size:13px;padding:8px 14px">${fsState.handle ? 'Carpeta conectada' : 'Conectar carpeta'}</button>
+                    ${fsState.handle ? `<button class="btn" onclick="persistToFolder('manual')" style="font-size:13px;padding:8px 14px">Guardar carpeta</button>` : ''}
+                    ${fsState.handle ? `<button class="btn" onclick="loadFromConnectedFolder()" style="font-size:13px;padding:8px 14px">Recargar carpeta</button>` : ''}
+                    ${fsState.handle ? `<button class="btn" onclick="disconnectDataFolder()" style="font-size:13px;padding:8px 14px">Desconectar</button>` : ''}
                     <button class="btn" onclick="exportBackupFile()" style="font-size:13px;padding:8px 14px">Exportar copia</button>
                     <button class="btn" onclick="openBackupImport()" style="font-size:13px;padding:8px 14px">Importar copia</button>
                     <button class="btn" onclick="restoreEmergencyBackup()" style="font-size:13px;padding:8px 14px">Restaurar</button>
@@ -2853,6 +3106,7 @@ function renderProjectsLayout() {
             <div class="projects-body">
                 <div class="projects-title">Mis proyectos</div>
                 <div class="projects-sub">${state.projects.length} proyecto${state.projects.length!==1?'s':''} · Selecciona uno para continuar. Ahora ya puedes exportar e importar una copia de seguridad.</div>
+                <div data-storage-status style="font-size:12px;color:var(--text-light);margin:-8px 0 20px">${storageStatusText()}</div>
                 <div class="card-grid">
                     ${cards}
                     <button class="project-add-card" onclick="openProjectModal()">
@@ -3481,6 +3735,7 @@ function renderAll() {
                     <button class="header-tab ${inNot?'active':''}" onclick="navigate('notes')">Notas</button>
                 </div>
                 <div class="header-progress">
+                    <span data-storage-status style="font-size:11px;color:var(--text-light);margin-right:8px">${storageStatusText()}</span>
                     <span>${op.done}/${op.total}</span>
                     <div class="hpbar"><div class="hpbar-fill" style="width:${op.pct}%"></div></div>
                     <span class="hpct">${op.pct}%</span>
@@ -3505,6 +3760,7 @@ function renderAll() {
 
 initState();
 renderAll();
+bootFolderPersistence();
 </script>
 </body>
 </html>

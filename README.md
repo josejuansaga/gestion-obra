@@ -46,6 +46,61 @@ Recomendación práctica:
 - guarda ese `.json` fuera del navegador
 - si un día falla algo, usa `Importar copia` o `Restaurar`
 
+## Carpeta de datos real
+
+La app ya puede trabajar con una carpeta real de datos usando navegadores compatibles como Chrome o Edge.
+
+Desde la pantalla de proyectos:
+
+- `Conectar carpeta`: eliges una carpeta donde guardar la base de datos de la app
+- `Guardar carpeta`: fuerza un guardado manual
+- `Recargar carpeta`: vuelve a leer los datos desde esa carpeta
+
+Cuando la carpeta está conectada, la app sigue guardando en el navegador como apoyo, pero además escribe archivos reales por proyecto.
+
+Estructura:
+
+- `index.json`
+- `proyectos/<proyecto>/core.json`
+- `proyectos/<proyecto>/docs.json`
+- `proyectos/<proyecto>/photos.json`
+
+Esto permite que tus obras no dependan solo de `localStorage`.
+
+## Docker
+
+La app ya queda preparada para ejecutarse con Docker y un volumen de datos.
+
+Archivos añadidos:
+
+- [Dockerfile](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/Dockerfile)
+- [docker-compose.yml](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/docker-compose.yml)
+- [nginx/default.conf](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/nginx/default.conf)
+- [runtime-data/README.md](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/runtime-data/README.md)
+
+### Arranque
+
+```bash
+docker compose up --build
+```
+
+La app quedará en:
+
+- [http://localhost:8080](http://localhost:8080)
+
+### Cómo usar los datos con Docker
+
+Con la arquitectura actual, Docker sirve la app y deja preparada la carpeta `runtime-data/`, pero el guardado sigue haciéndose desde el navegador con `Conectar carpeta`.
+
+Flujo recomendado:
+
+1. arranca Docker
+2. abre `http://localhost:8080`
+3. pulsa `Conectar carpeta`
+4. selecciona la carpeta `runtime-data/` del proyecto
+
+Así tendrás una URL local estable y una carpeta de datos preparada para el siguiente salto profesional.
+
 ## Calendario de obra
 
 - Puedes asignar fecha de inicio y fin previsto dentro de cada tarea.

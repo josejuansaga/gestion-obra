@@ -14,7 +14,20 @@ data/
       exportaciones/
 ```
 
-## Nota
+## Estado actual
 
-La versión actual sigue funcionando en navegador y guarda la información en almacenamiento local, pero ya separa cada obra como si tuviera su propia base de datos.
-Esta carpeta sirve como referencia para una futura versión con archivos reales o backend.
+La app ya puede trabajar con una carpeta real elegida por el usuario desde el navegador.
+
+Estructura real de guardado:
+
+```text
+<carpeta elegida>/
+  index.json
+  proyectos/
+    <proyecto>/
+      core.json
+      docs.json
+      photos.json
+```
+
+`localStorage` sigue existiendo como apoyo y copia rápida de trabajo, pero la carpeta conectada es la base robusta para no depender solo del navegador.
