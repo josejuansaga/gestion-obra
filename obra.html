@@ -299,6 +299,50 @@
         .note-text { font-size:14px; line-height:1.6; white-space:pre-wrap; }
         .note-del-btn { background:none; border:none; color:#ccc; cursor:pointer; font-size:15px; padding:2px 6px; border-radius:4px; flex-shrink:0; transition:all .15s; }
         .note-del-btn:hover { background:#fdecea; color:var(--danger); }
+
+        /* ─── Photos ─── */
+        .photo-section-tabs { display:flex; gap:6px; margin-bottom:20px; }
+        .photo-tab  { padding:8px 18px; border-radius:8px; border:1.5px solid var(--border); font-size:13px; font-weight:600; cursor:pointer; background:white; font-family:inherit; transition:all .15s; }
+        .photo-tab.active  { background:var(--primary); color:white; border-color:var(--primary); }
+        .photo-tab:hover:not(.active) { border-color:var(--primary); }
+        .photo-room-selector { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+        .photo-room-btn { padding:7px 14px; border-radius:8px; border:1.5px solid var(--border); font-size:13px; cursor:pointer; background:white; font-family:inherit; transition:all .15s; }
+        .photo-room-btn.active { border-color:var(--primary); background:#fff3e0; color:var(--primary-dark); font-weight:600; }
+        .photo-room-btn:hover:not(.active) { border-color:var(--primary); }
+        .photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; margin-bottom:20px; }
+        .photo-card { background:white; border-radius:12px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.07); position:relative; }
+        .photo-card img { width:100%; aspect-ratio:4/3; object-fit:cover; display:block; cursor:pointer; }
+        .photo-card-body { padding:10px 12px; }
+        .photo-caption-inp { width:100%; border:none; font-size:12px; color:var(--text-light); font-family:inherit; background:transparent; padding:0; }
+        .photo-caption-inp:focus { outline:none; color:var(--text); }
+        .photo-del-btn { position:absolute; top:6px; right:6px; background:rgba(0,0,0,.55); color:white; border:none; border-radius:6px; cursor:pointer; padding:3px 7px; font-size:12px; opacity:0; transition:opacity .15s; }
+        .photo-card:hover .photo-del-btn { opacity:1; }
+        .photo-add-btn { border:2px dashed var(--border); border-radius:12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; cursor:pointer; aspect-ratio:4/3; font-size:13px; color:var(--text-light); transition:all .15s; background:white; font-family:inherit; }
+        .photo-add-btn:hover { border-color:var(--primary); color:var(--primary); background:#fff8f0; }
+        .photo-add-btn .pa-icon { font-size:28px; }
+        /* Cert section inside task detail */
+        .cert-section { margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0; }
+        .cert-status-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:700; }
+        .cert-pending  { background:#fff8e1; color:#e65100; }
+        .cert-approved { background:#e8f5e9; color:#2e7d32; }
+        .cert-revision { background:#fdecea; color:#c62828; }
+        .cert-photo-wrap { margin:10px 0; border-radius:10px; overflow:hidden; max-width:320px; position:relative; }
+        .cert-photo-wrap img { width:100%; display:block; border-radius:10px; cursor:pointer; }
+        .cert-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+        .cert-btn { padding:6px 14px; border-radius:8px; font-size:12px; font-weight:600; border:1.5px solid transparent; cursor:pointer; font-family:inherit; transition:all .15s; }
+        .cert-btn-photo    { background:#f0f0f0; color:var(--text); border-color:#e0e0e0; }
+        .cert-btn-approve  { background:#e8f5e9; color:#2e7d32; border-color:#a5d6a7; }
+        .cert-btn-revision { background:#fdecea; color:#c62828; border-color:#ef9a9a; }
+        .cert-btn:hover { filter:brightness(.95); }
+        .cert-comment-inp { width:100%; margin-top:8px; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; }
+        .cert-comment-inp:focus { outline:none; border-color:var(--primary); }
+        .cert-comment-display { font-size:12px; background:#fff8e1; border-radius:8px; padding:8px 10px; margin-top:8px; color:#5d4037; }
+        /* Cert badge in task row */
+        .cert-row-badge { font-size:13px; flex-shrink:0; }
+        /* Lightbox */
+        .lightbox { display:none; position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:2000; align-items:center; justify-content:center; cursor:zoom-out; }
+        .lightbox.open { display:flex; }
+        .lightbox img  { max-width:90vw; max-height:90vh; border-radius:8px; box-shadow:0 8px 40px rgba(0,0,0,.5); }
     </style>
 </head>
 <body>
@@ -319,6 +363,11 @@
             <button class="btn btn-primary" id="addConfirmBtn" onclick="confirmAdd()" disabled>Añadir estancia</button>
         </div>
     </div>
+</div>
+
+<!-- ── Lightbox ── -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <img id="lightboxImg" src="" alt="">
 </div>
 
 <!-- ── Modal: empresa ── -->
@@ -419,6 +468,7 @@ const state = {
     tradeInfo: {},      // { tradeId:{ company, phone, budget, companyId } }
     companies: [],      // [{ id, name, phone, email, cif, address, trades:[], notes }]
     projectNotes: [],   // [{ id, date, text, category }]
+    sectionPhotos: {},  // { roomId: [{id, photoId, caption, date}] }
 };
 
 function uid()  { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
@@ -450,13 +500,137 @@ function initState() {
         if (p.tradeInfo)                   state.tradeInfo    = p.tradeInfo;
         if (Array.isArray(p.companies))    state.companies    = p.companies;
         if (Array.isArray(p.projectNotes)) state.projectNotes = p.projectNotes;
+        if (p.sectionPhotos)               state.sectionPhotos = p.sectionPhotos;
     } catch(e) {}
 }
 function saveState() {
     localStorage.setItem('obra_v3', JSON.stringify({
         rooms: state.rooms, tradeInfo: state.tradeInfo,
         companies: state.companies, projectNotes: state.projectNotes,
+        sectionPhotos: state.sectionPhotos,
     }));
+}
+
+// ================================================================
+// PHOTO STORAGE  (separate localStorage key to avoid bloating state)
+// ================================================================
+
+function _getPhotoStore() {
+    try { return JSON.parse(localStorage.getItem('obra_photos_v1') || '{}'); } catch(e) { return {}; }
+}
+function storePhoto(photoId, dataUrl) {
+    const store = _getPhotoStore();
+    store[photoId] = dataUrl;
+    try { localStorage.setItem('obra_photos_v1', JSON.stringify(store)); return true; }
+    catch(e) { alert('Sin espacio para guardar la foto. Prueba con una imagen más pequeña.'); return false; }
+}
+function removePhoto(photoId) {
+    const store = _getPhotoStore();
+    delete store[photoId];
+    localStorage.setItem('obra_photos_v1', JSON.stringify(store));
+}
+function getPhoto(photoId) { return _getPhotoStore()[photoId] || null; }
+
+function resizeAndUpload(callback) {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*';
+    input.onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const img = new Image();
+            img.onload = () => {
+                const MAX = 1400;
+                let w = img.width, h = img.height;
+                if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                callback(canvas.toDataURL('image/jpeg', 0.78));
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    };
+    input.click();
+}
+
+function openLightbox(src) {
+    document.getElementById('lightboxImg').src = src;
+    document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+
+// ================================================================
+// SECTION PHOTO ACTIONS
+// ================================================================
+
+let _photoMode   = 'before'; // 'before' | 'certs'
+let _photoRoomId = null;
+
+function addSectionPhoto(roomId) {
+    resizeAndUpload(dataUrl => {
+        const photoId = uid();
+        if (!storePhoto(photoId, dataUrl)) return;
+        if (!state.sectionPhotos[roomId]) state.sectionPhotos[roomId] = [];
+        state.sectionPhotos[roomId].push({ id: uid(), photoId, caption: '', date: new Date().toISOString() });
+        saveState(); renderAll();
+    });
+}
+function deleteSectionPhoto(roomId, entryId) {
+    const arr = state.sectionPhotos[roomId] || [];
+    const entry = arr.find(e => e.id === entryId);
+    if (entry) removePhoto(entry.photoId);
+    state.sectionPhotos[roomId] = arr.filter(e => e.id !== entryId);
+    saveState(); renderAll();
+}
+function saveSectionCaption(roomId, entryId, caption) {
+    const entry = (state.sectionPhotos[roomId] || []).find(e => e.id === entryId);
+    if (entry) { entry.caption = caption; saveState(); }
+}
+
+// ================================================================
+// CERT PHOTO ACTIONS
+// ================================================================
+
+function uploadCertPhoto(roomId, taskId) {
+    resizeAndUpload(dataUrl => {
+        const photoId = uid();
+        if (!storePhoto(photoId, dataUrl)) return;
+        const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+        if (!task) return;
+        if (task.certPhotoId) removePhoto(task.certPhotoId);
+        task.certPhotoId  = photoId;
+        task.certStatus   = 'pending';
+        task.certComment  = task.certComment || '';
+        task.certDate     = new Date().toISOString();
+        saveState(); renderAll();
+    });
+}
+function approveCert(roomId, taskId) {
+    const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+    if (!task) return;
+    task.certStatus = 'approved'; task.certComment = '';
+    saveState(); renderAll();
+}
+function requestRevision(roomId, taskId, comment) {
+    const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+    if (!task) return;
+    task.certStatus = 'revision'; task.certComment = comment || '';
+    saveState(); renderAll();
+}
+function openRevisionPrompt(roomId, taskId) {
+    const comment = prompt('¿Qué falta o hay que corregir?', '') ;
+    if (comment === null) return;
+    requestRevision(roomId, taskId, comment);
+}
+function deleteCertPhoto(roomId, taskId) {
+    const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+    if (!task) return;
+    removePhoto(task.certPhotoId);
+    task.certPhotoId = null; task.certStatus = null; task.certComment = ''; task.certDate = null;
+    saveState(); renderAll();
 }
 function initRoomTrades(type) {
     const trades = {};
@@ -877,6 +1051,9 @@ function renderTaskRow(roomId, tradeId, task) {
                 ${task.desc ? `<div class="task-desc-preview">${esc(task.desc)}</div>` : ''}
             </div>
             <span class="task-badge ${badge?'visible':''}" id="badge_${task.id}">${badge}</span>
+            ${task.certStatus==='approved' ? '<span class="cert-row-badge" title="Certificado y aprobado">✅</span>'
+            : task.certStatus==='revision'  ? '<span class="cert-row-badge" title="Requiere revisión">⚠️</span>'
+            : task.certStatus==='pending'   ? '<span class="cert-row-badge" title="Pendiente de aprobación">⏳</span>' : ''}
             <button id="detailbtn_${task.id}" class="task-detail-btn ${hasData?'has-data':''}"
                 title="${hasData?'Ver detalles':'Añadir cantidad / notas'}"
                 onclick="event.stopPropagation();toggleDetail('${task.id}')">📋</button>
@@ -923,6 +1100,7 @@ function renderTaskRow(roomId, tradeId, task) {
             <textarea class="task-notes-inp" placeholder="Notas, empresa responsable, observaciones…"
                 onclick="event.stopPropagation()"
                 onblur="saveTaskField('${roomId}','${task.id}','notes',this.value)">${esc(task.notes||'')}</textarea>
+            ${task.done ? renderCertSection(roomId, task) : ''}
         </div>
     </div>`;
 }
@@ -1023,6 +1201,20 @@ function renderSidebar() {
                 <span style="color:var(--primary)">⏳ Pendiente</span>
                 <span style="font-weight:600">${formatEur(data.pendingCost)}</span>
             </div>
+        </div>`;
+    } else if (state.view === 'photos') {
+        sectionTitle = 'Fotos';
+        const totalBefore = Object.values(state.sectionPhotos).reduce((n,a) => n + a.length, 0);
+        const certTasks   = state.rooms.flatMap(r => Object.values(r.trades).flat().filter(t => t.certPhotoId));
+        const approved    = certTasks.filter(t => t.certStatus === 'approved').length;
+        const pending     = certTasks.filter(t => t.certStatus === 'pending').length;
+        const revision    = certTasks.filter(t => t.certStatus === 'revision').length;
+        nav = `<div style="padding:12px 16px;font-size:12px;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--text-light)">Fotos previas</span><strong>${totalBefore}</strong></div>
+            <div style="height:1px;background:var(--border)"></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--success)">✅ Aprobadas</span><strong>${approved}</strong></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--primary)">⏳ Pendientes</span><strong>${pending}</strong></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--danger)">⚠️ Revisión</span><strong>${revision}</strong></div>
         </div>`;
     } else if (inCompaniesSection) {
         sectionTitle = 'Empresas';
@@ -1205,6 +1397,39 @@ function renderTradesList() {
 // ================================================================
 // RENDER — TRADE DETAIL
 // ================================================================
+
+function renderCertSection(roomId, task) {
+    const CERT_LABELS = { pending:'⏳ Pendiente de aprobación', approved:'✅ Aprobado', revision:'⚠️ Requiere revisión' };
+    const CERT_CLS    = { pending:'cert-pending', approved:'cert-approved', revision:'cert-revision' };
+    const photo = task.certPhotoId ? getPhoto(task.certPhotoId) : null;
+    const date  = task.certDate ? new Date(task.certDate).toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'numeric'}) : '';
+
+    return `<div class="cert-section" onclick="event.stopPropagation()">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <span class="cost-label">Certificación</span>
+            ${task.certStatus
+                ? `<span class="cert-status-badge ${CERT_CLS[task.certStatus]}">${CERT_LABELS[task.certStatus]}</span>
+                   ${date ? `<span style="font-size:11px;color:var(--text-light)">${date}</span>` : ''}`
+                : '<span style="font-size:12px;color:var(--text-light)">Sin foto de certificación</span>'}
+        </div>
+        ${photo ? `<div class="cert-photo-wrap">
+            <img src="${photo}" onclick="openLightbox('${photo}')" title="Ver foto">
+        </div>` : ''}
+        ${task.certStatus === 'revision' && task.certComment
+            ? `<div class="cert-comment-display">💬 ${esc(task.certComment)}</div>` : ''}
+        <div class="cert-actions">
+            <button class="cert-btn cert-btn-photo" onclick="uploadCertPhoto('${roomId}','${task.id}')">
+                📷 ${photo ? 'Cambiar foto' : 'Añadir foto'}
+            </button>
+            ${photo && task.certStatus !== 'approved' ? `
+            <button class="cert-btn cert-btn-approve" onclick="approveCert('${roomId}','${task.id}')">✅ Aprobar</button>
+            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Pedir revisión</button>` : ''}
+            ${photo && task.certStatus === 'approved' ? `
+            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Reabrir</button>` : ''}
+            ${photo ? `<button class="cert-btn" style="color:#ccc" onclick="deleteCertPhoto('${roomId}','${task.id}')">✕</button>` : ''}
+        </div>
+    </div>`;
+}
 
 function renderTradeInfoSection(tid, info) {
     const assignedC = info.companyId ? state.companies.find(c => c.id === info.companyId) : null;
@@ -1409,6 +1634,108 @@ function renderMaterialsPanel() {
 }
 
 // ================================================================
+// RENDER — PHOTOS PANEL
+// ================================================================
+
+function renderPhotosPanel() {
+    const tabs = `
+        <div class="photo-section-tabs">
+            <button class="photo-tab ${_photoMode==='before'?'active':''}" onclick="_photoMode='before';renderAll()">📷 Antes de la obra</button>
+            <button class="photo-tab ${_photoMode==='certs'?'active':''}"  onclick="_photoMode='certs';renderAll()">🏅 Certificaciones</button>
+        </div>`;
+
+    if (_photoMode === 'before') {
+        if (!state.rooms.length) return `
+            <div class="dash-header"><div><div class="page-title">Fotos</div></div></div>
+            ${tabs}
+            <div class="empty-state"><div class="empty-icon">📷</div><h2>Sin estancias</h2><p>Añade estancias primero para organizar las fotos.</p></div>`;
+
+        if (!_photoRoomId || !state.rooms.find(r => r.id === _photoRoomId))
+            _photoRoomId = state.rooms[0].id;
+
+        const roomBtns = state.rooms.map(r => {
+            const count = (state.sectionPhotos[r.id] || []).length;
+            return `<button class="photo-room-btn ${r.id===_photoRoomId?'active':''}"
+                onclick="_photoRoomId='${r.id}';renderAll()">
+                ${ROOM_TEMPLATES[r.type]?.icon||'🏠'} ${esc(r.name)}${count?` <span style="opacity:.6">(${count})</span>`:''}
+            </button>`;
+        }).join('');
+
+        const entries = state.sectionPhotos[_photoRoomId] || [];
+        const grid = `<div class="photo-grid">
+            ${entries.map(e => {
+                const src = getPhoto(e.photoId);
+                if (!src) return '';
+                return `<div class="photo-card">
+                    <img src="${src}" onclick="openLightbox('${src}')" title="Ver foto">
+                    <button class="photo-del-btn" onclick="deleteSectionPhoto('${_photoRoomId}','${e.id}')">✕</button>
+                    <div class="photo-card-body">
+                        <input class="photo-caption-inp" value="${esc(e.caption)}" placeholder="Añade descripción…"
+                            onblur="saveSectionCaption('${_photoRoomId}','${e.id}',this.value)">
+                        <div style="font-size:10px;color:#ccc;margin-top:2px">${new Date(e.date).toLocaleDateString('es-ES')}</div>
+                    </div>
+                </div>`;
+            }).join('')}
+            <button class="photo-add-btn" onclick="addSectionPhoto('${_photoRoomId}')">
+                <span class="pa-icon">＋</span>
+                <span>Añadir foto</span>
+            </button>
+        </div>`;
+
+        return `
+            <div class="dash-header">
+                <div><div class="page-title">Fotos</div><div class="page-sub">Registro fotográfico antes y durante la obra.</div></div>
+            </div>
+            ${tabs}
+            <div class="photo-room-selector">${roomBtns}</div>
+            ${grid}`;
+    }
+
+    // ── Certificaciones ──
+    const certTasks = [];
+    state.rooms.forEach(room => {
+        Object.entries(room.trades).forEach(([tid, tasks]) => {
+            tasks.filter(t => t.certPhotoId).forEach(t => {
+                certTasks.push({ task: t, room, trade: TRADES[tid] });
+            });
+        });
+    });
+
+    const CERT_LABELS = { pending:'⏳ Pendiente', approved:'✅ Aprobado', revision:'⚠️ Revisión' };
+    const CERT_CLS    = { pending:'cert-pending', approved:'cert-approved', revision:'cert-revision' };
+
+    const certGrid = certTasks.length === 0
+        ? `<div class="empty-state" style="padding:30px 0">
+               <div style="font-size:40px;margin-bottom:12px">🏅</div>
+               <h2>Sin certificaciones todavía</h2>
+               <p>Marca trabajos como completados y añade fotos de certificación usando el botón 📋 en cada tarea.</p>
+           </div>`
+        : `<div class="photo-grid">${certTasks.map(({task,room,trade}) => {
+            const src  = getPhoto(task.certPhotoId);
+            const date = task.certDate ? new Date(task.certDate).toLocaleDateString('es-ES') : '';
+            return src ? `<div class="photo-card">
+                <img src="${src}" onclick="openLightbox('${src}')" title="Ver foto">
+                <div class="photo-card-body">
+                    <div style="font-size:12px;font-weight:600;margin-bottom:3px">${esc(task.text)}</div>
+                    <div style="font-size:11px;color:var(--text-light);margin-bottom:4px">${trade?.icon||''} ${trade?.name||''} · ${esc(room.name)}</div>
+                    <span class="cert-status-badge ${CERT_CLS[task.certStatus]||'cert-pending'}" style="font-size:10px">
+                        ${CERT_LABELS[task.certStatus]||'⏳ Pendiente'}
+                    </span>
+                    ${task.certComment ? `<div style="font-size:11px;color:#888;margin-top:4px;font-style:italic">${esc(task.certComment)}</div>` : ''}
+                    <div style="font-size:10px;color:#ccc;margin-top:3px">${date}</div>
+                </div>
+            </div>` : '';
+        }).join('')}</div>`;
+
+    return `
+        <div class="dash-header">
+            <div><div class="page-title">Fotos</div><div class="page-sub">Registro fotográfico antes y durante la obra.</div></div>
+        </div>
+        ${tabs}
+        ${certGrid}`;
+}
+
+// ================================================================
 // RENDER — COMPANIES PANEL
 // ================================================================
 
@@ -1523,6 +1850,7 @@ function renderContent() {
         case 'materials':  return renderMaterialsPanel();
         case 'companies':  return renderCompaniesPanel();
         case 'notes':      return renderNotesPanel();
+        case 'photos':     return renderPhotosPanel();
         default:           return renderDashboard();
     }
 }
@@ -1534,6 +1862,7 @@ function renderAll() {
     const inEst     = state.view === 'dashboard'  || state.view === 'room';
     const inOfi     = state.view === 'trades'     || state.view === 'trade';
     const inMat     = state.view === 'materials';
+    const inFot     = state.view === 'photos';
     const inEmp     = state.view === 'companies';
     const inNot     = state.view === 'notes';
 
@@ -1545,6 +1874,7 @@ function renderAll() {
                 <button class="header-tab ${inEst?'active':''}" onclick="navigate('dashboard')">🏠 Estancias</button>
                 <button class="header-tab ${inOfi?'active':''}" onclick="navigate('trades')">👷 Oficios</button>
                 <button class="header-tab ${inMat?'active':''}" onclick="navigate('materials')">📦 Materiales</button>
+                <button class="header-tab ${inFot?'active':''}" onclick="navigate('photos')">📷 Fotos</button>
                 <button class="header-tab ${inEmp?'active':''}" onclick="navigate('companies')">🏢 Empresas</button>
                 <button class="header-tab ${inNot?'active':''}" onclick="navigate('notes')">📝 Notas</button>
             </div>
