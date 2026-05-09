@@ -1374,6 +1374,12 @@ function formatShortDate(dateStr) {
     if (isNaN(d)) return dateStr;
     return d.toLocaleDateString('es-ES', { day:'2-digit', month:'short' });
 }
+function formatShortDate(dateStr) {
+    if (!dateStr) return '';
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d)) return dateStr;
+    return d.toLocaleDateString('es-ES', { day:'2-digit', month:'short' });
+}
 function taskCost(task) {
     const q = parseFloat(task.qty), p = parseFloat(task.price);
     return (!isNaN(q) && !isNaN(p) && q > 0 && p > 0) ? q * p : null;
@@ -1658,6 +1664,109 @@ function removePhoto(photoId) {
     const store = _getPhotoStore();
     delete store.blobs[photoId];
     writeJSON(getActiveProjectKeys().photos, store);
+}
+function getPhoto(photoId) { return _getPhotoStore().blobs[photoId] || null; }
+
+function resizeAndUpload(callback) {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*';
+    input.onchange = e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const img = new Image();
+            img.onload = () => {
+                const MAX = 1400;
+                let w = img.width, h = img.height;
+                if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                callback(canvas.toDataURL('image/jpeg', 0.78));
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    };
+    input.click();
+}
+
+function openLightbox(src) {
+    document.getElementById('lightboxImg').src = src;
+    document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+
+// ================================================================
+// SECTION PHOTO ACTIONS
+// ================================================================
+
+let _photoMode   = 'before'; // 'before' | 'certs'
+let _photoRoomId = null;
+
+function addSectionPhoto(roomId) {
+    resizeAndUpload(dataUrl => {
+        const photoId = uid();
+        if (!storePhoto(photoId, dataUrl)) return;
+        if (!state.sectionPhotos[roomId]) state.sectionPhotos[roomId] = [];
+        state.sectionPhotos[roomId].push({ id: uid(), photoId, caption: '', date: new Date().toISOString() });
+        saveState(); renderAll();
+    });
+}
+function deleteSectionPhoto(roomId, entryId) {
+    const arr = state.sectionPhotos[roomId] || [];
+    const entry = arr.find(e => e.id === entryId);
+    if (entry) removePhoto(entry.photoId);
+    state.sectionPhotos[roomId] = arr.filter(e => e.id !== entryId);
+    saveState(); renderAll();
+}
+function saveSectionCaption(roomId, entryId, caption) {
+    const entry = (state.sectionPhotos[roomId] || []).find(e => e.id === entryId);
+    if (entry) { entry.caption = caption; saveState(); }
+}
+
+// ================================================================
+// CERT PHOTO ACTIONS
+// ================================================================
+
+function uploadCertPhoto(roomId, taskId) {
+    resizeAndUpload(dataUrl => {
+        const photoId = uid();
+        if (!storePhoto(photoId, dataUrl)) return;
+        const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+        if (!task) return;
+        if (task.certPhotoId) removePhoto(task.certPhotoId);
+        task.certPhotoId  = photoId;
+        task.certStatus   = 'pending';
+        task.certComment  = task.certComment || '';
+        task.certDate     = new Date().toISOString();
+        saveState(); renderAll();
+    });
+}
+function approveCert(roomId, taskId) {
+    const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+    if (!task) return;
+    task.done = true; task.certStatus = 'approved'; task.certComment = '';
+    saveState(); renderAll();
+}
+function requestRevision(roomId, taskId, comment) {
+    const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+    if (!task) return;
+    task.done = false; task.certStatus = 'revision'; task.certComment = comment || '';
+    saveState(); renderAll();
+}
+function openRevisionPrompt(roomId, taskId) {
+    const comment = prompt('¿Qué falta o hay que corregir?', '') ;
+    if (comment === null) return;
+    requestRevision(roomId, taskId, comment);
+}
+function deleteCertPhoto(roomId, taskId) {
+    const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
+    if (!task) return;
+    removePhoto(task.certPhotoId);
+    task.certPhotoId = null; task.certStatus = null; task.certComment = ''; task.certDate = null;
+    saveState(); renderAll();
 }
 function getPhoto(photoId) { return _getPhotoStore().blobs[photoId] || null; }
 
@@ -2213,9 +2322,101 @@ function addNote() {
     const text = document.getElementById('noteTextarea')?.value.trim();
     const cat  = document.getElementById('noteCatSel')?.value || 'general';
     if (!text) { document.getElementById('noteTextarea')?.focus(); return; }
-    state.projectNotes.unshift({ id: uid(), date: new Date().toISOString(), text, category: cat, author: currentUserLabel() });
+    state.projectNotes.unshift({ id: uid(), date: new Date().toISOString(), text, category: cat });
     saveState();
     document.getElementById('noteTextarea').value = '';
+    renderAll();
+}
+function deleteNote(noteId) {
+    if (!confirm('¿Eliminar esta nota?')) return;
+    state.projectNotes = state.projectNotes.filter(n => n.id !== noteId);
+    saveState(); renderAll();
+}
+
+// ================================================================
+// CALENDAR ACTIONS
+// ================================================================
+
+let _calendarCursor = new Date();
+_calendarCursor.setDate(1);
+_calendarCursor.setHours(0,0,0,0);
+
+function isoDateLocal(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+function getCalendarItems() {
+    const items = [];
+    state.projectCalendar.forEach(m => {
+        if (!m.date) return;
+        items.push({ type:'milestone', id:m.id, title:m.title, date:m.date, done:!!m.done, meta:'Hito de obra' });
+    });
+    state.rooms.forEach(room => {
+        Object.entries(room.trades || {}).forEach(([tradeId, tasks]) => {
+            const trade = TRADES[tradeId];
+            (tasks || []).forEach(task => {
+                const start = task.startDate || task.dueDate;
+                if (!start) return;
+                items.push({
+                    type:'task',
+                    id:task.id,
+                    title:task.text,
+                    date:start,
+                    endDate:task.dueDate || '',
+                    done:!!task.done,
+                    meta:`${room.name} · ${trade?.name || tradeId}`
+                });
+            });
+        });
+    });
+    return items.sort((a,b) => String(a.date).localeCompare(String(b.date)) || a.title.localeCompare(b.title));
+}
+function toggleCmpTrade(tid) {
+    if (_cmpSelTrades.has(tid)) _cmpSelTrades.delete(tid);
+    else _cmpSelTrades.add(tid);
+    document.getElementById(`ctbtn_${tid}`)?.classList.toggle('selected', _cmpSelTrades.has(tid));
+}
+function confirmCompany() {
+    const name = document.getElementById('cmpName').value.trim();
+    if (!name) { document.getElementById('cmpName').focus(); return; }
+    const data = {
+        name, trades: [..._cmpSelTrades],
+        phone:   document.getElementById('cmpPhone').value.trim(),
+        cif:     document.getElementById('cmpCif').value.trim(),
+        email:   document.getElementById('cmpEmail').value.trim(),
+        address: document.getElementById('cmpAddress').value.trim(),
+        notes:   document.getElementById('cmpNotes').value.trim(),
+    };
+    if (_editCompanyId) {
+        const c = state.companies.find(c => c.id === _editCompanyId);
+        if (c) Object.assign(c, data);
+    } else {
+        state.companies.push({ id: uid(), ...data });
+    }
+    saveState(); closeCompanyModal(); renderAll();
+}
+function deleteCompanyFromModal() {
+    if (!_editCompanyId) return;
+    const c = state.companies.find(c => c.id === _editCompanyId);
+    if (!c || !confirm(`¿Eliminar "${c.name}"?`)) return;
+    state.companies = state.companies.filter(c => c.id !== _editCompanyId);
+    Object.values(state.tradeInfo).forEach(info => { if (info.companyId === _editCompanyId) delete info.companyId; });
+    saveState(); closeCompanyModal(); renderAll();
+}
+
+// ================================================================
+// NOTE ACTIONS
+// ================================================================
+
+function addNote() {
+    const text = document.getElementById('noteTextarea')?.value.trim();
+    const cat  = document.getElementById('noteCatSel')?.value || 'general';
+    if (!text) { document.getElementById('noteTextarea')?.focus(); return; }
+    state.projectNotes.unshift({ id: uid(), date: new Date().toISOString(), text, category: cat, author: currentUserLabel() });
+    saveState();
+    document.getElementById('milestoneTitle').value = '';
     renderAll();
 }
 function addQuickMessage() {
@@ -2230,6 +2431,97 @@ function deleteNote(noteId) {
     if (!confirm('¿Eliminar esta nota?')) return;
     state.projectNotes = state.projectNotes.filter(n => n.id !== noteId);
     saveState(); renderAll();
+}
+function toggleMilestoneDone(id) {
+    const milestone = state.projectCalendar.find(m => m.id === id);
+    if (!milestone) return;
+    milestone.done = !milestone.done;
+    saveState(); renderAll();
+}
+function moveCalendarMonth(delta) {
+    _calendarCursor = new Date(_calendarCursor.getFullYear(), _calendarCursor.getMonth() + delta, 1);
+    renderAll();
+}
+function renderCalendarPanel() {
+    const year = _calendarCursor.getFullYear();
+    const month = _calendarCursor.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startOffset = (firstDay.getDay() + 6) % 7;
+    const gridStart = new Date(year, month, 1 - startOffset);
+    const todayIso = isoDateLocal(new Date());
+    const items = getCalendarItems();
+    const monthLabel = firstDay.toLocaleDateString('es-ES', { month:'long', year:'numeric' });
+    const days = [];
+    for (let i = 0; i < 42; i++) {
+        const d = new Date(gridStart);
+        d.setDate(gridStart.getDate() + i);
+        const iso = isoDateLocal(d);
+        const matching = items.filter(item => item.date === iso || (item.type === 'task' && item.endDate && item.endDate === iso && item.endDate !== item.date));
+        const dayItems = matching.slice(0, 3);
+        const extra = matching.length - dayItems.length;
+        days.push(`
+            <div class="calendar-day ${d.getMonth()!==month?'muted':''} ${iso===todayIso?'today':''}">
+                <div class="calendar-day-num">${d.getDate()}</div>
+                <div class="calendar-pill-list">
+                    ${dayItems.map(item => `<div class="calendar-pill ${item.type} ${item.done?'done':''}">${esc(item.title)}</div>`).join('') || '<div class="calendar-empty">Sin actividad</div>'}
+                    ${extra > 0 ? `<div class="calendar-empty">+${extra} mÃ¡s</div>` : ''}
+                </div>
+            </div>`);
+    }
+    const upcoming = items
+        .filter(item => item.date >= todayIso)
+        .slice(0, 8)
+        .map(item => `
+            <div class="agenda-item">
+                <div class="agenda-date">${formatShortDate(item.date)}</div>
+                <div class="agenda-text">
+                    ${esc(item.title)}
+                    <div class="agenda-sub">${esc(item.meta || '')}</div>
+                </div>
+            </div>`).join('') || '<div class="calendar-empty">Sin prÃ³ximas fechas.</div>';
+    const milestones = [...state.projectCalendar]
+        .sort((a,b) => String(a.date).localeCompare(String(b.date)))
+        .map(m => `
+            <div class="milestone-item">
+                <input type="checkbox" ${m.done?'checked':''} onclick="toggleMilestoneDone('${m.id}')">
+                <div class="milestone-date">${formatShortDate(m.date)}</div>
+                <div class="milestone-text">
+                    ${esc(m.title)}
+                    <div class="milestone-sub">${m.done ? 'Completado' : 'Pendiente'}</div>
+                </div>
+                <button class="mini-del-btn" onclick="removeMilestone('${m.id}')">✕</button>
+            </div>`).join('') || '<div class="calendar-empty">TodavÃ­a no hay hitos.</div>';
+
+    return `
+        <div class="dash-header">
+            <div><div class="page-title">Calendario de obra</div><div class="page-sub">Planifica tareas, hitos y prÃ³ximas fechas clave.</div></div>
+        </div>
+        <div class="calendar-top">
+            <div class="calendar-nav">
+                <button class="btn btn-ghost" onclick="moveCalendarMonth(-1)">◀</button>
+                <div class="calendar-month">${esc(monthLabel)}</div>
+                <button class="btn btn-ghost" onclick="moveCalendarMonth(1)">▶</button>
+            </div>
+        </div>
+        <div class="calendar-grid">
+            <div class="calendar-weekday">Lun</div><div class="calendar-weekday">Mar</div><div class="calendar-weekday">MiÃ©</div><div class="calendar-weekday">Jue</div><div class="calendar-weekday">Vie</div><div class="calendar-weekday">SÃ¡b</div><div class="calendar-weekday">Dom</div>
+            ${days.join('')}
+        </div>
+        <div class="calendar-split">
+            <div class="milestone-box">
+                <div class="section-label">Hitos del proyecto</div>
+                <div class="milestone-form">
+                    <input class="info-input" id="milestoneTitle" type="text" placeholder="Ej. Inicio de demoliciones">
+                    <input class="info-input" id="milestoneDate" type="date">
+                    <button class="btn btn-primary" onclick="addMilestone()">AÃ±adir hito</button>
+                </div>
+                <div class="milestone-list">${milestones}</div>
+            </div>
+            <div class="agenda-box">
+                <div class="section-label">PrÃ³ximas fechas</div>
+                ${upcoming}
+            </div>
+        </div>`;
 }
 
 // ================================================================
@@ -2657,28 +2949,28 @@ function renderTaskRow(roomId, tradeId, task) {
              ondragstart="handleDragStart(event,this.closest('.task-container'))"
              ondragend="handleDragEnd()"
              onclick="toggleDetail('${task.id}')">
-            <span class="drag-handle" onclick="event.stopPropagation()">⠿</span>
-            <div class="task-check ${task.done?'checked':''}" onclick="event.stopPropagation()">✓</div>
+            <span class="drag-handle" onclick="event.stopPropagation()">::</span>
+            <div class="task-check ${task.done?'checked':''}" onclick="event.stopPropagation()">OK</div>
             <div style="flex:1;min-width:0">
                 <span class="task-text ${task.done?'done':''}">${esc(task.text)}</span>
                 ${task.desc ? `<div class="task-desc-preview">${esc(task.desc)}</div>` : ''}
                 ${dateLabel}
             </div>
             <span class="task-badge ${badge?'visible':''}" id="badge_${task.id}">${badge}</span>
-            ${task.certStatus==='approved' ? '<span class="cert-row-badge" title="Certificado y aprobado">✅</span>'
-            : task.certStatus==='revision'  ? '<span class="cert-row-badge" title="Requiere revisión">⚠️</span>'
-            : task.certStatus==='pending'   ? '<span class="cert-row-badge" title="Pendiente de aprobación">⏳</span>' : ''}
+            ${task.certStatus==='approved' ? '<span class="cert-row-badge" title="Certificado y aprobado">OK</span>'
+            : task.certStatus==='revision'  ? '<span class="cert-row-badge" title="Requiere revision">REV</span>'
+            : task.certStatus==='pending'   ? '<span class="cert-row-badge" title="Pendiente de aprobacion">PTE</span>' : ''}
             <button id="detailbtn_${task.id}" class="task-detail-btn ${hasData?'has-data':''}"
-                title="${hasData?'Ver detalles':'Añadir cantidad / notas'}"
-                onclick="event.stopPropagation();toggleDetail('${task.id}')">📋</button>
+                title="${hasData?'Ver detalles':'Anadir cantidad / notas'}"
+                onclick="event.stopPropagation();toggleDetail('${task.id}')">Ver</button>
             <button class="task-del-btn" title="Eliminar tarea"
-                onclick="event.stopPropagation();deleteTask('${roomId}','${tradeId}','${task.id}')">✕</button>
+                onclick="event.stopPropagation();deleteTask('${roomId}','${tradeId}','${task.id}')">X</button>
         </div>
         ${task.notes && !task.qty && !task.price ? `<div class="task-notes-preview">${esc(task.notes)}</div>` : ''}
         <div id="detail_${task.id}" class="task-detail" style="display:none">
             <div style="margin-bottom:10px">
-                <span class="cost-label">Descripción del trabajo</span>
-                <textarea class="task-notes-inp" style="margin-top:4px" placeholder="Describe qué se va a realizar, materiales, acabados…"
+                <span class="cost-label">Descripcion del trabajo</span>
+                <textarea class="task-notes-inp" style="margin-top:4px" placeholder="Describe que se va a realizar, materiales, acabados..."
                     onclick="event.stopPropagation()"
                     onblur="saveTaskField('${roomId}','${task.id}','desc',this.value)">${esc(task.desc||'')}</textarea>
             </div>
@@ -2712,9 +3004,9 @@ function renderTaskRow(roomId, tradeId, task) {
                     <select class="cost-select" onclick="event.stopPropagation()"
                         onchange="saveTaskField('${roomId}','${task.id}','unit',this.value)">${unitSel}</select>
                 </div>
-                <span class="cost-sep">×</span>
+                <span class="cost-sep">x</span>
                 <div class="cost-field">
-                    <span class="cost-label">€ / unidad</span>
+                    <span class="cost-label">EUR / unidad</span>
                     <input class="cost-input cost-price" type="number" min="0" step="0.01"
                         value="${esc(task.price||'')}" placeholder="0,00"
                         onclick="event.stopPropagation()"
@@ -2724,10 +3016,10 @@ function renderTaskRow(roomId, tradeId, task) {
                 <span class="cost-sep">=</span>
                 <div class="cost-total-box">
                     <span class="cost-label">Total</span>
-                    <span class="cost-total" id="costtotal_${task.id}">${cost !== null ? formatEur(cost) : '—'}</span>
+                    <span class="cost-total" id="costtotal_${task.id}">${cost !== null ? formatEur(cost) : '-'}</span>
                 </div>
             </div>
-            <textarea class="task-notes-inp" placeholder="Notas, empresa responsable, observaciones…"
+            <textarea class="task-notes-inp" placeholder="Notas, empresa responsable, observaciones..."
                 onclick="event.stopPropagation()"
                 onblur="saveTaskField('${roomId}','${task.id}','notes',this.value)">${esc(task.notes||'')}</textarea>
             ${renderCertSection(roomId, task)}
@@ -3143,9 +3435,10 @@ function renderRoomDetail(roomId) {
 
 function renderTradesList() {
     const cards = Object.entries(TRADES).map(([tid, trade]) => {
-        const p     = tradeGlobalProgress(tid);
-        const info  = getTradeInfo(tid);
-        const color = pctColor(p.pct);
+        const p      = tradeGlobalProgress(tid);
+        const info   = getTradeInfo(tid);
+        const color  = pctColor(p.pct);
+        const timing = tradeScheduleText(info);
         return `
             <div class="trade-card" onclick="navigate('trade','${tid}')">
                 <div class="trade-card-top">
@@ -3153,8 +3446,8 @@ function renderTradesList() {
                     <div>
                         <div class="trade-card-name">${trade.name}</div>
                         <div class="trade-card-info">
-                            ${info.company ? `🏢 ${esc(info.company)}<br>` : '<span style="color:#bbb">Sin empresa asignada</span><br>'}
-                            ${info.phone   ? `📞 ${esc(info.phone)}`  : ''}
+                            ${info.company ? `Empresa: ${esc(info.company)}<br>` : '<span style="color:#bbb">Sin empresa asignada</span><br>'}
+                            ${info.phone ? `Telefono: ${esc(info.phone)}` : ''}
                         </div>
                         ${timing ? `<div class="trade-card-info" style="margin-top:6px">ðŸ—— ${esc(timing)}</div>` : ''}
                         ${info.budget ? `<div class="trade-card-budget">${formatEur(info.budget)}</div>` : ''}
@@ -3167,87 +3460,9 @@ function renderTradesList() {
     }).join('');
     return `
         <div class="dash-header">
-            <div><div class="page-title">Oficios</div><div class="page-sub">Gestiona empresas, contactos y presupuestos por oficio.</div></div>
+            <div><div class="page-title">Oficios</div><div class="page-sub">Gestiona empresas, contactos, presupuesto y tiempos por oficio.</div></div>
         </div>
         <div class="card-grid">${cards}</div>`;
-}
-
-// ================================================================
-// RENDER — TRADE DETAIL
-// ================================================================
-
-function renderCertSection(roomId, task) {
-    const CERT_LABELS = { pending:'⏳ Pendiente de aprobación', approved:'✅ Aprobado', revision:'⚠️ Requiere revisión' };
-    const CERT_CLS    = { pending:'cert-pending', approved:'cert-approved', revision:'cert-revision' };
-    const photo = task.certPhotoId ? getPhoto(task.certPhotoId) : null;
-    const date  = task.certDate ? new Date(task.certDate).toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'numeric'}) : '';
-
-    return `<div class="cert-section" onclick="event.stopPropagation()">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-            <span class="cost-label">Certificación</span>
-            ${task.certStatus
-                ? `<span class="cert-status-badge ${CERT_CLS[task.certStatus]}">${CERT_LABELS[task.certStatus]}</span>
-                   ${date ? `<span style="font-size:11px;color:var(--text-light)">${date}</span>` : ''}`
-                : '<span style="font-size:12px;color:var(--text-light)">Sin foto de certificación</span>'}
-        </div>
-        ${photo ? `<div class="cert-photo-wrap">
-            <img src="${photo}" onclick="openLightbox('${photo}')" title="Ver foto">
-        </div>` : ''}
-        ${task.certStatus === 'revision' && task.certComment
-            ? `<div class="cert-comment-display">💬 ${esc(task.certComment)}</div>` : ''}
-        <div class="cert-actions">
-            <button class="cert-btn cert-btn-photo" onclick="uploadCertPhoto('${roomId}','${task.id}')">
-                📷 ${photo ? 'Cambiar foto' : 'Añadir foto'}
-            </button>
-            ${task.certStatus !== 'approved' ? `
-            <button class="cert-btn cert-btn-approve" onclick="approveCert('${roomId}','${task.id}')">✅ Aprobar</button>
-            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Pedir revisión</button>` : `
-            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Reabrir</button>`}
-            ${photo ? `<button class="cert-btn" style="color:#ccc;border-color:#eee" onclick="deleteCertPhoto('${roomId}','${task.id}')">✕ Foto</button>` : ''}
-        </div>
-    </div>`;
-}
-
-function renderTradeInfoSection(tid, info) {
-    const assignedC = info.companyId ? state.companies.find(c => c.id === info.companyId) : null;
-    const readonly  = 'style="padding:9px 13px;border:1.5px solid #f0f0f0;border-radius:9px;font-size:14px;background:#f8f9fa;color:var(--text)"';
-
-    const selector = state.companies.length > 0
-        ? `<div class="info-field" style="grid-column:1/-1">
-               <label class="info-label">Empresa asignada</label>
-               <select class="info-input" onchange="assignCompanyToTrade('${tid}',this.value)">
-                   <option value="">— Sin empresa asignada —</option>
-                   ${state.companies.map(c =>
-                       `<option value="${c.id}" ${info.companyId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`
-                   ).join('')}
-               </select>
-           </div>`
-        : `<div class="info-field" style="grid-column:1/-1">
-               <div style="font-size:13px;color:var(--text-light);padding:6px 0">
-                   Ve a <strong>🏢 Empresas</strong> para registrar empresas y asignarlas aquí.
-               </div>
-           </div>`;
-
-    const display = assignedC
-        ? `<div class="info-field">
-               <label class="info-label">Empresa</label>
-               <div ${readonly}>🏢 ${esc(assignedC.name)}</div>
-           </div>
-           <div class="info-field">
-               <label class="info-label">Teléfono</label>
-               <div ${readonly}>${assignedC.phone ? '📞 ' + esc(assignedC.phone) : '—'}</div>
-           </div>`
-        : '';
-
-    return `<div class="trade-info-grid">
-        ${selector}
-        ${display}
-        <div class="info-field">
-            <label class="info-label">Presupuesto (€)</label>
-            <input class="info-input" type="text" value="${esc(info.budget)}"
-                placeholder="Ej: 4500" oninput="updateTradeInfo('${tid}','budget',this.value)">
-        </div>
-    </div>`;
 }
 
 function renderTradeDetail(tid) {
@@ -3260,7 +3475,7 @@ function renderTradeDetail(tid) {
     const roomsWithTrade = state.rooms.filter(r => r.trades[tid]);
 
     const roomGroups = roomsWithTrade.length === 0
-        ? `<div class="empty-state" style="padding:30px 0"><div style="font-size:32px;margin-bottom:8px">📭</div><p>Ninguna estancia tiene trabajos de este oficio.</p></div>`
+        ? `<div class="empty-state" style="padding:30px 0"><div style="font-size:32px;margin-bottom:8px">Trabajos</div><p>Ninguna estancia tiene trabajos de este oficio.</p></div>`
         : roomsWithTrade.map(room => {
             const tasks = room.trades[tid];
             const done  = tasks.filter(t => t.done).length;
@@ -3271,7 +3486,7 @@ function renderTradeDetail(tid) {
             return `
                 <div class="room-group">
                     <div class="room-group-hdr" onclick="toggleCollapse('${key}')">
-                        <span style="font-size:18px">${tpl?tpl.icon:'🏠'}</span>
+                        <span style="font-size:18px">${tpl?tpl.icon:'Casa'}</span>
                         <span class="room-group-name">${esc(room.name)}</span>
                         <span class="room-group-count">${done}/${total} · ${pct}%</span>
                         <span class="trade-chevron" id="chev_${key}">${state.collapsed[key]?'▶':'▼'}</span>
@@ -3287,7 +3502,7 @@ function renderTradeDetail(tid) {
         }).join('');
 
     return `
-        <button class="back-btn" onclick="navigate('trades')">← Volver a oficios</button>
+        <button class="back-btn" onclick="navigate('trades')">Volver a oficios</button>
         <div class="detail-header">
             <div class="detail-title-row">
                 <span class="detail-big-icon">${trade.icon}</span>
@@ -3558,72 +3773,9 @@ function renderProjectsLayout() {
         </div>`;
 }
 
-// ================================================================
-// RENDER — PHOTOS PANEL
-// ================================================================
-
-function renderPhotosPanel() {
-    const tabs = `
-        <div class="photo-section-tabs">
-            <button class="photo-tab ${_photoMode==='before'?'active':''}" onclick="_photoMode='before';renderAll()">📷 Antes de la obra</button>
-            <button class="photo-tab ${_photoMode==='certs'?'active':''}"  onclick="_photoMode='certs';renderAll()">🏅 Certificaciones</button>
-        </div>`;
-
-    if (_photoMode === 'before') {
-        if (!state.rooms.length) return `
-            <div class="dash-header"><div><div class="page-title">Fotos</div></div></div>
-            ${tabs}
-            <div class="empty-state"><div class="empty-icon">📷</div><h2>Sin estancias</h2><p>Añade estancias primero para organizar las fotos.</p></div>`;
-
-        if (!_photoRoomId || !state.rooms.find(r => r.id === _photoRoomId))
-            _photoRoomId = state.rooms[0].id;
-
-        const roomBtns = state.rooms.map(r => {
-            const count = (state.sectionPhotos[r.id] || []).length;
-            return `<button class="photo-room-btn ${r.id===_photoRoomId?'active':''}"
-                onclick="_photoRoomId='${r.id}';renderAll()">
-                ${ROOM_TEMPLATES[r.type]?.icon||'🏠'} ${esc(r.name)}${count?` <span style="opacity:.6">(${count})</span>`:''}
-            </button>`;
-        }).join('');
-
-        const entries = state.sectionPhotos[_photoRoomId] || [];
-        const grid = `<div class="photo-grid">
-            ${entries.map(e => {
-                const src = getPhoto(e.photoId);
-                if (!src) return '';
-                return `<div class="photo-card">
-                    <img src="${src}" onclick="openLightbox('${src}')" title="Ver foto">
-                    <button class="photo-del-btn" onclick="deleteSectionPhoto('${_photoRoomId}','${e.id}')">✕</button>
-                    <div class="photo-card-body">
-                        <input class="photo-caption-inp" value="${esc(e.caption)}" placeholder="Añade descripción…"
-                            onblur="saveSectionCaption('${_photoRoomId}','${e.id}',this.value)">
-                        <div style="font-size:10px;color:#ccc;margin-top:2px">${new Date(e.date).toLocaleDateString('es-ES')}</div>
-                    </div>
-                </div>`;
-            }).join('')}
-            <button class="photo-add-btn" onclick="addSectionPhoto('${_photoRoomId}')">
-                <span class="pa-icon">＋</span>
-                <span>Añadir foto</span>
-            </button>
-        </div>`;
-
-        return `
-            <div class="dash-header">
-                <div><div class="page-title">Fotos</div><div class="page-sub">Registro fotográfico antes y durante la obra.</div></div>
-            </div>
-            ${tabs}
-            <div class="photo-room-selector">${roomBtns}</div>
-            ${grid}`;
-    }
-
-    // ── Certificaciones ──
-    const certTasks = [];
-    state.rooms.forEach(room => {
-        Object.entries(room.trades).forEach(([tid, tasks]) => {
-            tasks.filter(t => t.certPhotoId).forEach(t => {
-                certTasks.push({ task: t, room, trade: TRADES[tid] });
-            });
-        });
+function resetAllStorage() {
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('obra_')) localStorage.removeItem(key);
     });
 
     const CERT_LABELS = { pending:'⏳ Pendiente', approved:'✅ Aprobado', revision:'⚠️ Revisión' };
@@ -3811,9 +3963,58 @@ function renderContent() {
 }
 
 function renderAll() {
-    if (!state.currentProjectId || state.view === 'projects') {
-        document.getElementById('app').innerHTML = renderProjectsLayout();
-        return;
+    try {
+        if (!state.currentProjectId || state.view === 'projects') {
+            document.getElementById('app').innerHTML = renderProjectsLayout();
+            return;
+        }
+
+        const contentEl = document.getElementById('content');
+        const scrollY   = contentEl ? contentEl.scrollTop : 0;
+        const op        = overallProgress();
+        const inEst     = state.view === 'dashboard'  || state.view === 'room';
+        const inOfi     = state.view === 'trades'     || state.view === 'trade';
+        const inMat     = state.view === 'materials';
+        const inDoc     = state.view === 'docs';
+        const inDir     = state.view === 'direction';
+        const inFot     = state.view === 'photos';
+        const inCal     = state.view === 'calendar';
+        const inEmp     = state.view === 'companies';
+        const inNot     = state.view === 'notes';
+        const proj      = state.projects.find(p => p.id === state.currentProjectId);
+
+        document.getElementById('app').innerHTML = `
+            <div class="header">
+                <button class="proj-back-btn" onclick="exitToProjects()">Proyectos</button>
+                <span class="proj-name-badge" title="${esc(proj?.name||'')}">${esc(proj?.name||'Obra')}</span>
+                <div class="header-tabs">
+                    <button class="header-tab ${inEst?'active':''}" onclick="navigate('dashboard')">Estancias</button>
+                    <button class="header-tab ${inOfi?'active':''}" onclick="navigate('trades')">Oficios</button>
+                    <button class="header-tab ${inMat?'active':''}" onclick="navigate('materials')">Materiales</button>
+                    <button class="header-tab ${inDoc?'active':''}" onclick="navigate('docs')">Docs</button>
+                    <button class="header-tab ${inDir?'active':''}" onclick="navigate('direction')">Direccion</button>
+                    <button class="header-tab ${inFot?'active':''}" onclick="navigate('photos')">Fotos</button>
+                    <button class="header-tab ${inCal?'active':''}" onclick="navigate('calendar')">Calendario</button>
+                    <button class="header-tab ${inEmp?'active':''}" onclick="navigate('companies')">Empresas</button>
+                    <button class="header-tab ${inNot?'active':''}" onclick="navigate('notes')">Notas</button>
+                </div>
+                <div class="header-progress">
+                    <span data-storage-status style="font-size:11px;color:var(--text-light);margin-right:8px">${storageStatusText()}</span>
+                    <span>${op.done}/${op.total}</span>
+                    <div class="hpbar"><div class="hpbar-fill" style="width:${op.pct}%"></div></div>
+                    <span class="hpct">${op.pct}%</span>
+                </div>
+            </div>
+            <div class="main">
+                <div class="sidebar">${renderSidebar()}</div>
+                <div class="content" id="content">${renderContent()}</div>
+            </div>`;
+
+        const newContent = document.getElementById('content');
+        if (newContent && scrollY) newContent.scrollTop = scrollY;
+    } catch (err) {
+        console.error(err);
+        showRecoveryScreen(err);
     }
 
     const contentEl = document.getElementById('content');
