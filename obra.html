@@ -1196,6 +1196,48 @@ function renderTradesList() {
 // RENDER — TRADE DETAIL
 // ================================================================
 
+function renderTradeInfoSection(tid, info) {
+    const assignedC = info.companyId ? state.companies.find(c => c.id === info.companyId) : null;
+    const readonly  = 'style="padding:9px 13px;border:1.5px solid #f0f0f0;border-radius:9px;font-size:14px;background:#f8f9fa;color:var(--text)"';
+
+    const selector = state.companies.length > 0
+        ? `<div class="info-field" style="grid-column:1/-1">
+               <label class="info-label">Empresa asignada</label>
+               <select class="info-input" onchange="assignCompanyToTrade('${tid}',this.value)">
+                   <option value="">— Sin empresa asignada —</option>
+                   ${state.companies.map(c =>
+                       `<option value="${c.id}" ${info.companyId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`
+                   ).join('')}
+               </select>
+           </div>`
+        : `<div class="info-field" style="grid-column:1/-1">
+               <div style="font-size:13px;color:var(--text-light);padding:6px 0">
+                   Ve a <strong>🏢 Empresas</strong> para registrar empresas y asignarlas aquí.
+               </div>
+           </div>`;
+
+    const display = assignedC
+        ? `<div class="info-field">
+               <label class="info-label">Empresa</label>
+               <div ${readonly}>🏢 ${esc(assignedC.name)}</div>
+           </div>
+           <div class="info-field">
+               <label class="info-label">Teléfono</label>
+               <div ${readonly}>${assignedC.phone ? '📞 ' + esc(assignedC.phone) : '—'}</div>
+           </div>`
+        : '';
+
+    return `<div class="trade-info-grid">
+        ${selector}
+        ${display}
+        <div class="info-field">
+            <label class="info-label">Presupuesto (€)</label>
+            <input class="info-input" type="text" value="${esc(info.budget)}"
+                placeholder="Ej: 4500" oninput="updateTradeInfo('${tid}','budget',this.value)">
+        </div>
+    </div>`;
+}
+
 function renderTradeDetail(tid) {
     const trade = TRADES[tid];
     if (!trade) { navigate('trades'); return ''; }
@@ -1244,28 +1286,7 @@ function renderTradeDetail(tid) {
             </div>
             <div class="detail-pbar"><div class="detail-pbar-fill" style="width:${p.pct}%;background:${color}"></div></div>
             <div class="section-label">Datos del oficio</div>
-            <div class="trade-info-grid">
-                ${state.companies.length > 0 ? `
-                <div class="info-field" style="grid-column:1/-1">
-                    <label class="info-label">Empresa del directorio</label>
-                    <select class="info-input" onchange="assignCompanyToTrade('${tid}',this.value)">
-                        <option value="">— Seleccionar empresa —</option>
-                        ${state.companies.map(c => `<option value="${c.id}" ${info.companyId===c.id?'selected':''}>${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('')}
-                    </select>
-                </div>` : ''}
-                <div class="info-field">
-                    <label class="info-label">Empresa / Autónomo</label>
-                    <input class="info-input" type="text" value="${esc(info.company)}" placeholder="Nombre de la empresa…" oninput="updateTradeInfo('${tid}','company',this.value)">
-                </div>
-                <div class="info-field">
-                    <label class="info-label">Teléfono</label>
-                    <input class="info-input" type="tel" value="${esc(info.phone)}" placeholder="Ej: 666 123 456" oninput="updateTradeInfo('${tid}','phone',this.value)">
-                </div>
-                <div class="info-field">
-                    <label class="info-label">Presupuesto (€)</label>
-                    <input class="info-input" type="text" value="${esc(info.budget)}" placeholder="Ej: 4500" oninput="updateTradeInfo('${tid}','budget',this.value)">
-                </div>
-            </div>
+            ${renderTradeInfoSection(tid, info)}
         </div>
         <div class="section-label" style="margin-top:8px">Trabajos por estancia</div>
         ${roomGroups}`;
