@@ -345,6 +345,8 @@
         .doc-btn-del:hover { background:#fdecea; border-color:var(--danger); color:var(--danger); }
         .doc-add-row { display:flex; justify-content:flex-end; padding-top:10px; border-top:1px dashed #eee; margin-top:6px; }
         .doc-empty { font-size:13px; color:var(--text-light); font-style:italic; padding:6px 0 10px; }
+        .doc-pdf-thumb { width:38px; height:50px; border-radius:4px; border:1px solid var(--border); background:#f5f5f5; flex-shrink:0; display:block; object-fit:contain; }
+        .doc-img-thumb { width:38px; height:50px; border-radius:4px; border:1px solid var(--border); object-fit:cover; flex-shrink:0; display:block; }
 
         /* ─── Companies ─── */
         .company-card { background:white; border-radius:14px; padding:20px; border:2px solid transparent; box-shadow:0 1px 4px rgba(0,0,0,.07); transition:all .2s; cursor:pointer; }
@@ -674,6 +676,12 @@
 
 <div id="app"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+</script>
 <script>
 // ================================================================
 // CONSTANTS
@@ -2456,7 +2464,11 @@ function renderCalendarPanel() {
         const d = new Date(gridStart);
         d.setDate(gridStart.getDate() + i);
         const iso = isoDateLocal(d);
-        const matching = items.filter(item => item.date === iso || (item.type === 'task' && item.endDate && item.endDate === iso && item.endDate !== item.date));
+        const matching = items.filter(item => {
+            if (item.type === 'milestone') return item.date === iso;
+            if (item.endDate && item.endDate >= item.date) return iso >= item.date && iso <= item.endDate;
+            return item.date === iso;
+        });
         const dayItems = matching.slice(0, 3);
         const extra = matching.length - dayItems.length;
         days.push(`
@@ -2603,7 +2615,11 @@ function renderCalendarPanel() {
         const d = new Date(gridStart);
         d.setDate(gridStart.getDate() + i);
         const iso = isoDateLocal(d);
-        const matching = items.filter(item => item.date === iso || (item.type === 'task' && item.endDate && item.endDate === iso && item.endDate !== item.date));
+        const matching = items.filter(item => {
+            if (item.type === 'milestone') return item.date === iso;
+            if (item.endDate && item.endDate >= item.date) return iso >= item.date && iso <= item.endDate;
+            return item.date === iso;
+        });
         const dayItems = matching.slice(0, 3);
         const extra = matching.length - dayItems.length;
         days.push(`
@@ -3642,11 +3658,21 @@ function renderDocumentsPanel() {
         const rows = docs.map(d => {
             const isPDF = d.fileType === 'application/pdf';
             const isImg = d.fileType?.startsWith('image/');
-            const icon  = isPDF ? '📄' : isImg ? '🖼️' : '📎';
             const date  = new Date(d.date).toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'numeric' });
+            let thumbEl;
+            if (isPDF) {
+                thumbEl = `<canvas class="doc-pdf-thumb" data-pdf-docid="${esc(d.docId)}"></canvas>`;
+            } else if (isImg) {
+                const src = getDoc(d.docId) || '';
+                thumbEl = src
+                    ? `<img class="doc-img-thumb" src="${src}" alt="">`
+                    : `<span class="doc-type-icon">🖼️</span>`;
+            } else {
+                thumbEl = `<span class="doc-type-icon">📎</span>`;
+            }
             return `
             <div class="doc-item">
-                <span class="doc-type-icon">${icon}</span>
+                ${thumbEl}
                 <input class="doc-name-inp" value="${esc(d.name)}" placeholder="Nombre del documento"
                     onblur="saveDocField('${key}','${d.id}','name',this.value)">
                 <input class="doc-notes-inp" value="${esc(d.notes)}" placeholder="Notas…"
@@ -3694,6 +3720,28 @@ function renderDocumentsPanel() {
             </div>
         </div>
         ${sections}`;
+}
+
+async function renderPDFThumbnails() {
+    if (typeof pdfjsLib === 'undefined') return;
+    document.querySelectorAll('canvas[data-pdf-docid]').forEach(async canvas => {
+        if (canvas.dataset.rendered) return;
+        canvas.dataset.rendered = '1';
+        try {
+            const data = getDoc(canvas.dataset.pdfDocid);
+            if (!data) return;
+            const b64 = data.includes(',') ? data.split(',')[1] : data;
+            const binary = atob(b64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 0.1 });
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        } catch(e) { console.warn('PDF thumb:', e); }
+    });
 }
 
 // ================================================================
@@ -4408,7 +4456,6 @@ function renderAll() {
         const inCal     = state.view === 'calendar';
         const inEmp     = state.view === 'companies';
         const inNot     = state.view === 'notes';
-        const inAdmin   = state.view === 'admin';
         const proj      = state.projects.find(p => p.id === state.currentProjectId);
 
         document.getElementById('app').innerHTML = `
@@ -4425,7 +4472,6 @@ function renderAll() {
                     <button class="header-tab ${inCal?'active':''}" onclick="navigate('calendar')">Calendario</button>
                     <button class="header-tab ${inEmp?'active':''}" onclick="navigate('companies')">Empresas</button>
                     <button class="header-tab ${inNot?'active':''}" onclick="navigate('notes')">Notas</button>
-                    ${isAdmin() ? `<button class="header-tab ${inAdmin?'active':''}" onclick="navigate('admin')">Administracion</button>` : ''}
                 </div>
                 <div class="header-progress">
                     <span data-storage-status style="font-size:11px;color:var(--text-light);margin-right:8px">${storageStatusText()}</span>
@@ -4443,6 +4489,7 @@ function renderAll() {
 
         const newContent = document.getElementById('content');
         if (newContent && scrollY) newContent.scrollTop = scrollY;
+        if (state.view === 'docs') setTimeout(renderPDFThumbnails, 50);
     } catch (err) {
         console.error(err);
         showRecoveryScreen(err);
