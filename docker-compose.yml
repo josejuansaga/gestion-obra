@@ -1,0 +1,11 @@
+services:
+  gestor-obra:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gestor-obra
+    ports:
+      - "8080:80"
+    volumes:
+      - ./runtime-data:/data
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+# Archivos binarios y comprimidos
+*.rar
+*.zip
+*.tar.gz
+
+# Datos de runtime (Docker / File System API)
+runtime-data/*.json
+runtime-data/proyectos/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
