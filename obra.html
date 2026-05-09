@@ -301,6 +301,33 @@
         .color-dot { width:26px; height:26px; border-radius:50%; border:3px solid transparent; cursor:pointer; transition:transform .15s; flex-shrink:0; outline:none; }
         .color-dot.selected { border-color:white; box-shadow:0 0 0 2px #555; transform:scale(1.2); }
 
+        /* ─── Documents ─── */
+        .doc-cat-section { background:white; border-radius:14px; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.07); overflow:hidden; }
+        .doc-cat-hdr { display:flex; align-items:center; gap:12px; padding:16px 20px; cursor:pointer; user-select:none; }
+        .doc-cat-hdr:hover { background:#fafafa; }
+        .doc-cat-icon { font-size:22px; flex-shrink:0; }
+        .doc-cat-info { flex:1; }
+        .doc-cat-name { font-size:15px; font-weight:700; }
+        .doc-cat-desc { font-size:11px; color:var(--text-light); margin-top:1px; }
+        .doc-cat-count { font-size:12px; color:var(--text-light); flex-shrink:0; }
+        .doc-list { padding:8px 20px 16px; border-top:1px solid #f5f5f5; }
+        .doc-item { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #f8f8f8; }
+        .doc-item:last-child { border-bottom:none; }
+        .doc-type-icon { font-size:20px; flex-shrink:0; }
+        .doc-name-inp { flex:1; border:none; font-size:14px; font-family:inherit; background:transparent; padding:3px 6px; border-radius:6px; border-bottom:1.5px solid transparent; min-width:0; transition:border-color .15s; }
+        .doc-name-inp:hover { border-bottom-color:var(--border); }
+        .doc-name-inp:focus { outline:none; border-bottom-color:var(--primary); }
+        .doc-notes-inp { width:160px; border:none; font-size:12px; color:var(--text-light); font-family:inherit; font-style:italic; background:transparent; padding:3px 6px; flex-shrink:0; }
+        .doc-notes-inp:focus { outline:none; font-style:normal; }
+        .doc-date { font-size:11px; color:var(--text-light); flex-shrink:0; white-space:nowrap; }
+        .doc-btn { padding:5px 11px; border-radius:7px; border:1.5px solid var(--border); font-size:12px; font-weight:600; cursor:pointer; background:white; font-family:inherit; transition:all .15s; white-space:nowrap; flex-shrink:0; }
+        .doc-btn-view { border-color:#1976D2; color:#1976D2; }
+        .doc-btn-view:hover { background:#e3f2fd; }
+        .doc-btn-del { color:#ccc; }
+        .doc-btn-del:hover { background:#fdecea; border-color:var(--danger); color:var(--danger); }
+        .doc-add-row { display:flex; justify-content:flex-end; padding-top:10px; border-top:1px dashed #eee; margin-top:6px; }
+        .doc-empty { font-size:13px; color:var(--text-light); font-style:italic; padding:6px 0 10px; }
+
         /* ─── Companies ─── */
         .company-card { background:white; border-radius:14px; padding:20px; border:2px solid transparent; box-shadow:0 1px 4px rgba(0,0,0,.07); transition:all .2s; cursor:pointer; }
         .company-card:hover { border-color:var(--primary); transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.1); }
@@ -533,6 +560,7 @@ const state = {
     companies: [],
     projectNotes: [],
     sectionPhotos: {},
+    documents: { arquitecto:[], planos:[], permisos:[] },
 };
 
 function uid()  { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
@@ -569,6 +597,7 @@ function saveCurrentProject() {
         rooms: state.rooms, tradeInfo: state.tradeInfo,
         companies: state.companies, projectNotes: state.projectNotes,
         sectionPhotos: state.sectionPhotos,
+        documents: state.documents,
     }));
 }
 function saveState() { saveCurrentProject(); }
@@ -583,6 +612,7 @@ function loadProject(projectId) {
         state.companies     = Array.isArray(d.companies)     ? d.companies     : [];
         state.projectNotes  = Array.isArray(d.projectNotes)  ? d.projectNotes  : [];
         state.sectionPhotos = d.sectionPhotos || {};
+        state.documents     = d.documents || { arquitecto:[], planos:[], permisos:[] };
     } catch(e) {
         state.rooms=[]; state.tradeInfo={}; state.companies=[];
         state.projectNotes=[]; state.sectionPhotos={};
@@ -624,6 +654,78 @@ function initState() {
     } catch(e) {}
     // Fresh start
     state.view = 'projects';
+}
+
+// ================================================================
+// DOCUMENT STORAGE
+// ================================================================
+
+const DOC_CATEGORIES = {
+    arquitecto: { label:'Proyecto Arquitecto',     icon:'🏛️', desc:'Proyecto básico, de ejecución, memoria descriptiva…' },
+    planos:     { label:'Planos',                  icon:'📐', desc:'Plantas, alzados, secciones, detalles constructivos…' },
+    permisos:   { label:'Ayuntamiento y Permisos', icon:'📋', desc:'Licencias de obra, cédulas, permisos municipales…' },
+};
+
+function _getDocStore() {
+    try { return JSON.parse(localStorage.getItem('obra_docs_v1') || '{}'); } catch(e) { return {}; }
+}
+function storeDoc(docId, base64) {
+    const store = _getDocStore();
+    store[docId] = base64;
+    try { localStorage.setItem('obra_docs_v1', JSON.stringify(store)); return true; }
+    catch(e) { alert('Sin espacio para guardar el documento. Prueba con un archivo más pequeño.'); return false; }
+}
+function removeDoc(docId) {
+    const store = _getDocStore(); delete store[docId];
+    localStorage.setItem('obra_docs_v1', JSON.stringify(store));
+}
+function getDoc(docId) { return _getDocStore()[docId] || null; }
+
+function dataURLToBlob(dataURL) {
+    const arr = dataURL.split(','), mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]); let n = bstr.length;
+    const u8 = new Uint8Array(n);
+    while (n--) u8[n] = bstr.charCodeAt(n);
+    return new Blob([u8], { type: mime });
+}
+function uploadDocument(catKey) {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*,application/pdf,.doc,.docx,.xls,.xlsx';
+    input.onchange = e => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const docId = uid();
+            if (!storeDoc(docId, ev.target.result)) return;
+            if (!state.documents[catKey]) state.documents[catKey] = [];
+            state.documents[catKey].push({
+                id: uid(), docId, notes: '',
+                name: file.name.replace(/\.[^.]+$/, ''),
+                fileType: file.type,
+                date: new Date().toISOString(),
+            });
+            saveState(); renderAll();
+        };
+        reader.readAsDataURL(file);
+    };
+    input.click();
+}
+function deleteDocument(catKey, entryId) {
+    if (!confirm('¿Eliminar este documento?')) return;
+    const arr = state.documents[catKey] || [];
+    const entry = arr.find(e => e.id === entryId);
+    if (entry) removeDoc(entry.docId);
+    state.documents[catKey] = arr.filter(e => e.id !== entryId);
+    saveState(); renderAll();
+}
+function viewDocument(docId) {
+    const data = getDoc(docId); if (!data) return;
+    const url = URL.createObjectURL(dataURLToBlob(data));
+    window.open(url, '_blank');
+}
+function saveDocField(catKey, entryId, field, value) {
+    const entry = (state.documents[catKey] || []).find(e => e.id === entryId);
+    if (entry) { entry[field] = value; saveState(); }
 }
 
 // ================================================================
@@ -822,6 +924,7 @@ function deleteProjectFromModal() {
         state.currentProjectId = null;
         state.rooms=[]; state.tradeInfo={}; state.companies=[];
         state.projectNotes=[]; state.sectionPhotos={};
+        state.documents={ arquitecto:[], planos:[], permisos:[] };
     }
     saveIndex();
     closeProjectModal();
@@ -837,6 +940,7 @@ function exitToProjects() {
     state.currentProjectId = null;
     state.rooms=[]; state.tradeInfo={}; state.companies=[];
     state.projectNotes=[]; state.sectionPhotos={}; state.collapsed={};
+    state.documents={ arquitecto:[], planos:[], permisos:[] };
     state.view = 'projects';
     saveIndex();
     renderAll();
@@ -1403,6 +1507,18 @@ function renderSidebar() {
                 <span style="font-weight:600">${formatEur(data.pendingCost)}</span>
             </div>
         </div>`;
+    } else if (state.view === 'docs') {
+        sectionTitle = 'Documentación';
+        nav = `<div style="padding:12px 16px;font-size:12px;display:flex;flex-direction:column;gap:8px">
+            ${Object.entries(DOC_CATEGORIES).map(([key, cat]) => {
+                const count = (state.documents[key]||[]).length;
+                return `<div style="display:flex;align-items:center;gap:8px">
+                    <span>${cat.icon}</span>
+                    <span style="flex:1;color:var(--text-light)">${cat.label}</span>
+                    <strong>${count}</strong>
+                </div>`;
+            }).join('')}
+        </div>`;
     } else if (state.view === 'photos') {
         sectionTitle = 'Fotos';
         const totalBefore = Object.values(state.sectionPhotos).reduce((n,a) => n + a.length, 0);
@@ -1834,6 +1950,69 @@ function renderMaterialsPanel() {
 }
 
 // ================================================================
+// RENDER — DOCUMENTS PANEL
+// ================================================================
+
+function renderDocumentsPanel() {
+    const totalDocs = Object.values(state.documents).reduce((n, arr) => n + (arr||[]).length, 0);
+
+    const sections = Object.entries(DOC_CATEGORIES).map(([key, cat]) => {
+        const docs = state.documents[key] || [];
+        const colKey = 'doc_' + key;
+        const collapsed = !!state.collapsed[colKey];
+
+        const rows = docs.map(d => {
+            const isPDF = d.fileType === 'application/pdf';
+            const isImg = d.fileType?.startsWith('image/');
+            const icon  = isPDF ? '📄' : isImg ? '🖼️' : '📎';
+            const date  = new Date(d.date).toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'numeric' });
+            return `
+            <div class="doc-item">
+                <span class="doc-type-icon">${icon}</span>
+                <input class="doc-name-inp" value="${esc(d.name)}" placeholder="Nombre del documento"
+                    onblur="saveDocField('${key}','${d.id}','name',this.value)">
+                <input class="doc-notes-inp" value="${esc(d.notes)}" placeholder="Notas…"
+                    onblur="saveDocField('${key}','${d.id}','notes',this.value)">
+                <span class="doc-date">${date}</span>
+                <button class="doc-btn doc-btn-view" onclick="viewDocument('${d.docId}')">👁 Ver</button>
+                <button class="doc-btn doc-btn-del" onclick="deleteDocument('${key}','${d.id}')">✕</button>
+            </div>`;
+        }).join('');
+
+        return `
+        <div class="doc-cat-section">
+            <div class="doc-cat-hdr" onclick="toggleCollapse('${colKey}')">
+                <span class="doc-cat-icon">${cat.icon}</span>
+                <div class="doc-cat-info">
+                    <div class="doc-cat-name">${cat.label}</div>
+                    <div class="doc-cat-desc">${cat.desc}</div>
+                </div>
+                <span class="doc-cat-count">${docs.length} doc${docs.length !== 1 ? 's' : ''}</span>
+                <span class="trade-chevron" id="chev_${colKey}">${collapsed ? '▶' : '▼'}</span>
+            </div>
+            <div class="trade-tasks ${collapsed ? 'collapsed' : ''}" id="body_${colKey}" style="padding:0">
+                <div class="doc-list">
+                    ${rows || `<div class="doc-empty">Sin documentos en esta categoría.</div>`}
+                    <div class="doc-add-row">
+                        <button class="btn btn-ghost" style="font-size:13px"
+                            onclick="uploadDocument('${key}')">＋ Añadir documento</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="dash-header">
+            <div>
+                <div class="page-title">Documentación</div>
+                <div class="page-sub">Proyecto, planos y permisos · ${totalDocs} documento${totalDocs !== 1 ? 's' : ''}.</div>
+            </div>
+        </div>
+        ${sections}`;
+}
+
+// ================================================================
 // RENDER — PROJECTS SELECTOR
 // ================================================================
 
@@ -2112,6 +2291,7 @@ function renderContent() {
         case 'trades':     return renderTradesList();
         case 'trade':      return renderTradeDetail(state.currentTrade);
         case 'materials':  return renderMaterialsPanel();
+        case 'docs':       return renderDocumentsPanel();
         case 'companies':  return renderCompaniesPanel();
         case 'notes':      return renderNotesPanel();
         case 'photos':     return renderPhotosPanel();
@@ -2131,6 +2311,7 @@ function renderAll() {
     const inEst     = state.view === 'dashboard'  || state.view === 'room';
     const inOfi     = state.view === 'trades'     || state.view === 'trade';
     const inMat     = state.view === 'materials';
+    const inDoc     = state.view === 'docs';
     const inFot     = state.view === 'photos';
     const inEmp     = state.view === 'companies';
     const inNot     = state.view === 'notes';
@@ -2144,6 +2325,7 @@ function renderAll() {
                 <button class="header-tab ${inEst?'active':''}" onclick="navigate('dashboard')">🏠 Estancias</button>
                 <button class="header-tab ${inOfi?'active':''}" onclick="navigate('trades')">👷 Oficios</button>
                 <button class="header-tab ${inMat?'active':''}" onclick="navigate('materials')">📦 Materiales</button>
+                <button class="header-tab ${inDoc?'active':''}" onclick="navigate('docs')">📄 Docs</button>
                 <button class="header-tab ${inFot?'active':''}" onclick="navigate('photos')">📷 Fotos</button>
                 <button class="header-tab ${inEmp?'active':''}" onclick="navigate('companies')">🏢 Empresas</button>
                 <button class="header-tab ${inNot?'active':''}" onclick="navigate('notes')">📝 Notas</button>
