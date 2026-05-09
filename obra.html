@@ -272,6 +272,35 @@
         ::-webkit-scrollbar-track { background:transparent; }
         ::-webkit-scrollbar-thumb { background:#ddd; border-radius:3px; }
 
+        /* ─── Projects selector ─── */
+        .projects-page { min-height:100vh; background:var(--bg); display:flex; flex-direction:column; }
+        .projects-topbar { background:#2c3e50; color:white; padding:0 32px; height:58px; display:flex; align-items:center; gap:14px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+        .projects-topbar h1 { font-size:18px; font-weight:800; flex:1; }
+        .projects-body { flex:1; max-width:1100px; margin:0 auto; padding:40px 24px; width:100%; }
+        .projects-title { font-size:26px; font-weight:800; margin-bottom:6px; }
+        .projects-sub   { font-size:14px; color:var(--text-light); margin-bottom:28px; }
+        .project-card { background:white; border-radius:16px; padding:24px; cursor:pointer; border:2px solid transparent; box-shadow:0 2px 8px rgba(0,0,0,.07); transition:all .2s; position:relative; overflow:hidden; }
+        .project-card::before { content:''; position:absolute; top:0; left:0; right:0; height:5px; background:var(--proj-color, #e67e22); }
+        .project-card:hover { border-color:var(--primary); transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,.1); }
+        .project-card-name { font-size:18px; font-weight:800; margin:10px 0 4px; }
+        .project-card-meta { font-size:12px; color:var(--text-light); line-height:1.7; margin-bottom:14px; }
+        .project-card-stats { display:flex; gap:20px; }
+        .proj-stat-val { font-size:20px; font-weight:800; }
+        .proj-stat-lbl { font-size:11px; color:var(--text-light); }
+        .project-edit-btn { position:absolute; top:14px; right:14px; background:rgba(0,0,0,.06); border:none; border-radius:6px; padding:4px 8px; font-size:14px; cursor:pointer; opacity:0; transition:opacity .15s; }
+        .project-card:hover .project-edit-btn { opacity:1; }
+        .project-add-card { background:white; border-radius:16px; padding:24px; border:2px dashed var(--border); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; cursor:pointer; transition:all .2s; min-height:180px; font-family:inherit; }
+        .project-add-card:hover { border-color:var(--primary); background:#fff8f0; }
+        .project-add-card .pa-icon { font-size:32px; color:var(--text-light); }
+        .project-add-card span { font-size:14px; font-weight:600; color:var(--text-light); }
+        /* In-project header additions */
+        .proj-back-btn { padding:5px 11px; border-radius:6px; border:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:600; background:rgba(255,255,255,.13); color:rgba(255,255,255,.8); transition:all .15s; flex-shrink:0; }
+        .proj-back-btn:hover { background:rgba(255,255,255,.22); color:white; }
+        .proj-name-badge { font-size:13px; font-weight:700; color:rgba(255,255,255,.9); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; flex-shrink:0; }
+        /* Color picker */
+        .color-dot { width:26px; height:26px; border-radius:50%; border:3px solid transparent; cursor:pointer; transition:transform .15s; flex-shrink:0; outline:none; }
+        .color-dot.selected { border-color:white; box-shadow:0 0 0 2px #555; transform:scale(1.2); }
+
         /* ─── Companies ─── */
         .company-card { background:white; border-radius:14px; padding:20px; border:2px solid transparent; box-shadow:0 1px 4px rgba(0,0,0,.07); transition:all .2s; cursor:pointer; }
         .company-card:hover { border-color:var(--primary); transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.1); }
@@ -361,6 +390,35 @@
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
             <button class="btn btn-primary" id="addConfirmBtn" onclick="confirmAdd()" disabled>Añadir estancia</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal: proyecto ── -->
+<div class="modal-overlay" id="projectModal" onclick="closeProjectModal(event)">
+    <div class="modal" style="max-width:480px">
+        <div class="modal-title" id="projectModalTitle">Nuevo proyecto</div>
+        <div class="modal-field">
+            <label class="modal-label">Nombre del proyecto *</label>
+            <input class="modal-input" id="projName" type="text" placeholder="Ej: Reforma vivienda calle Mayor"
+                onkeydown="if(event.key==='Enter')confirmProject()">
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Dirección / Ubicación</label>
+            <input class="modal-input" id="projAddress" type="text" placeholder="Calle, número, ciudad">
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Descripción</label>
+            <textarea class="modal-input" id="projDesc" rows="2" style="resize:vertical" placeholder="Tipo de obra, alcance…"></textarea>
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Color identificativo</label>
+            <div id="projColorPicker" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeProjectModal()">Cancelar</button>
+            <button class="btn btn-danger" id="projDeleteBtn" style="display:none" onclick="deleteProjectFromModal()">🗑 Eliminar proyecto</button>
+            <button class="btn btn-primary" onclick="confirmProject()">Guardar proyecto</button>
         </div>
     </div>
 </div>
@@ -459,16 +517,22 @@ const ROOM_TEMPLATES = {
 // Task: { id, text, done, notes, qty, unit, price }
 // ================================================================
 
+const PROJECT_COLORS = ['#e67e22','#1976D2','#27ae60','#8E24AA','#c0392b','#2c3e50','#00838F','#F57C00','#546E7A'];
+
 const state = {
-    view: 'dashboard',  // dashboard|room|trades|trade|materials|companies|notes
+    view: 'dashboard',
     currentRoom: null,
     currentTrade: null,
+    // ── Project index ──
+    projects: [],          // [{ id, name, address, description, color, createdAt }]
+    currentProjectId: null,
+    // ── Active project data ──
     rooms: [],
     collapsed: {},
-    tradeInfo: {},      // { tradeId:{ company, phone, budget, companyId } }
-    companies: [],      // [{ id, name, phone, email, cif, address, trades:[], notes }]
-    projectNotes: [],   // [{ id, date, text, category }]
-    sectionPhotos: {},  // { roomId: [{id, photoId, caption, date}] }
+    tradeInfo: {},
+    companies: [],
+    projectNotes: [],
+    sectionPhotos: {},
 };
 
 function uid()  { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
@@ -493,22 +557,73 @@ function taskBadgeText(task) {
     return parts.join(' · ');
 }
 
-function initState() {
-    try {
-        const p = JSON.parse(localStorage.getItem('obra_v3') || '{}');
-        if (Array.isArray(p.rooms))        state.rooms        = p.rooms;
-        if (p.tradeInfo)                   state.tradeInfo    = p.tradeInfo;
-        if (Array.isArray(p.companies))    state.companies    = p.companies;
-        if (Array.isArray(p.projectNotes)) state.projectNotes = p.projectNotes;
-        if (p.sectionPhotos)               state.sectionPhotos = p.sectionPhotos;
-    } catch(e) {}
+function saveIndex() {
+    localStorage.setItem('obra_index_v1', JSON.stringify({
+        projects: state.projects,
+        currentProjectId: state.currentProjectId,
+    }));
 }
-function saveState() {
-    localStorage.setItem('obra_v3', JSON.stringify({
+function saveCurrentProject() {
+    if (!state.currentProjectId) return;
+    localStorage.setItem('obra_proj_' + state.currentProjectId, JSON.stringify({
         rooms: state.rooms, tradeInfo: state.tradeInfo,
         companies: state.companies, projectNotes: state.projectNotes,
         sectionPhotos: state.sectionPhotos,
     }));
+}
+function saveState() { saveCurrentProject(); }
+
+function loadProject(projectId) {
+    saveCurrentProject();
+    state.currentProjectId = projectId;
+    try {
+        const d = JSON.parse(localStorage.getItem('obra_proj_' + projectId) || '{}');
+        state.rooms         = Array.isArray(d.rooms)         ? d.rooms         : [];
+        state.tradeInfo     = d.tradeInfo     || {};
+        state.companies     = Array.isArray(d.companies)     ? d.companies     : [];
+        state.projectNotes  = Array.isArray(d.projectNotes)  ? d.projectNotes  : [];
+        state.sectionPhotos = d.sectionPhotos || {};
+    } catch(e) {
+        state.rooms=[]; state.tradeInfo={}; state.companies=[];
+        state.projectNotes=[]; state.sectionPhotos={};
+    }
+    state.collapsed = {};
+    state.view = 'dashboard';
+    _photoMode = 'before'; _photoRoomId = null;
+    saveIndex();
+}
+
+function initState() {
+    // Load index
+    try {
+        const idx = JSON.parse(localStorage.getItem('obra_index_v1') || '{}');
+        if (Array.isArray(idx.projects) && idx.projects.length) {
+            state.projects = idx.projects;
+            if (idx.currentProjectId && state.projects.find(p => p.id === idx.currentProjectId)) {
+                loadProject(idx.currentProjectId);
+                return;
+            }
+            state.view = 'projects';
+            return;
+        }
+    } catch(e) {}
+    // Migration: old obra_v3 single-project data
+    try {
+        const old = JSON.parse(localStorage.getItem('obra_v3') || '{}');
+        if (Array.isArray(old.rooms) && old.rooms.length) {
+            const projId = uid();
+            state.projects = [{ id:projId, name:'Mi Obra', address:'', description:'', color:'#e67e22', createdAt:new Date().toISOString() }];
+            localStorage.setItem('obra_proj_' + projId, JSON.stringify({
+                rooms: old.rooms, tradeInfo: old.tradeInfo || {},
+                companies: old.companies || [], projectNotes: old.projectNotes || [],
+                sectionPhotos: old.sectionPhotos || {},
+            }));
+            loadProject(projId);
+            return;
+        }
+    } catch(e) {}
+    // Fresh start
+    state.view = 'projects';
 }
 
 // ================================================================
@@ -640,6 +755,92 @@ function initRoomTrades(type) {
     return trades;
 }
 function getTradeInfo(tid) { return state.tradeInfo[tid] || { company:'', phone:'', budget:'' }; }
+
+// ================================================================
+// PROJECT ACTIONS
+// ================================================================
+
+let _editProjectId = null;
+let _selProjColor  = PROJECT_COLORS[0];
+
+function openProjectModal(projectId) {
+    _editProjectId = projectId || null;
+    const p = projectId ? state.projects.find(p => p.id === projectId) : null;
+    _selProjColor = p ? p.color : PROJECT_COLORS[0];
+    document.getElementById('projectModalTitle').textContent = p ? 'Editar proyecto' : 'Nuevo proyecto';
+    document.getElementById('projName').value    = p ? p.name        : '';
+    document.getElementById('projAddress').value = p ? p.address     : '';
+    document.getElementById('projDesc').value    = p ? p.description : '';
+    document.getElementById('projDeleteBtn').style.display = p ? 'inline-flex' : 'none';
+    document.getElementById('projColorPicker').innerHTML = PROJECT_COLORS.map(c =>
+        `<button type="button" class="color-dot ${_selProjColor===c?'selected':''}"
+            style="background:${c}" data-color="${c}" onclick="selectProjColor('${c}')"></button>`
+    ).join('');
+    document.getElementById('projectModal').classList.add('open');
+    setTimeout(() => document.getElementById('projName').focus(), 100);
+}
+function closeProjectModal(e) {
+    if (e && e.target !== document.getElementById('projectModal')) return;
+    document.getElementById('projectModal').classList.remove('open');
+}
+function selectProjColor(c) {
+    _selProjColor = c;
+    document.querySelectorAll('#projColorPicker .color-dot').forEach(d =>
+        d.classList.toggle('selected', d.dataset.color === c));
+}
+function confirmProject() {
+    const name = document.getElementById('projName').value.trim();
+    if (!name) { document.getElementById('projName').focus(); return; }
+    const data = {
+        name, color: _selProjColor,
+        address:     document.getElementById('projAddress').value.trim(),
+        description: document.getElementById('projDesc').value.trim(),
+    };
+    if (_editProjectId) {
+        const p = state.projects.find(p => p.id === _editProjectId);
+        if (p) Object.assign(p, data);
+    } else {
+        const newProj = { id: uid(), createdAt: new Date().toISOString(), ...data };
+        state.projects.push(newProj);
+        saveIndex();
+        closeProjectModal();
+        loadProject(newProj.id);
+        renderAll();
+        return;
+    }
+    saveIndex();
+    closeProjectModal();
+    renderAll();
+}
+function deleteProjectFromModal() {
+    if (!_editProjectId) return;
+    const p = state.projects.find(p => p.id === _editProjectId);
+    if (!p || !confirm(`¿Eliminar "${p.name}"?\nSe perderán todas las estancias, tareas y fotos del proyecto.`)) return;
+    localStorage.removeItem('obra_proj_' + _editProjectId);
+    state.projects = state.projects.filter(p => p.id !== _editProjectId);
+    if (state.currentProjectId === _editProjectId) {
+        state.currentProjectId = null;
+        state.rooms=[]; state.tradeInfo={}; state.companies=[];
+        state.projectNotes=[]; state.sectionPhotos={};
+    }
+    saveIndex();
+    closeProjectModal();
+    state.view = 'projects';
+    renderAll();
+}
+function enterProject(projectId) {
+    loadProject(projectId);
+    renderAll();
+}
+function exitToProjects() {
+    saveCurrentProject();
+    state.currentProjectId = null;
+    state.rooms=[]; state.tradeInfo={}; state.companies=[];
+    state.projectNotes=[]; state.sectionPhotos={}; state.collapsed={};
+    state.view = 'projects';
+    saveIndex();
+    renderAll();
+}
 function findTask(taskId) {
     for (const room of state.rooms)
         for (const tasks of Object.values(room.trades)) {
@@ -1633,6 +1834,70 @@ function renderMaterialsPanel() {
 }
 
 // ================================================================
+// RENDER — PROJECTS SELECTOR
+// ================================================================
+
+function renderProjectsLayout() {
+    const cards = state.projects.map(p => {
+        // Load project data just for stats (don't change active project)
+        let rooms = [], tradeInfo = {};
+        try {
+            const d = JSON.parse(localStorage.getItem('obra_proj_' + p.id) || '{}');
+            rooms = d.rooms || []; tradeInfo = d.tradeInfo || {};
+        } catch(e) {}
+        let total = 0, done = 0;
+        rooms.forEach(r => Object.values(r.trades||{}).forEach(tasks =>
+            tasks.forEach(t => { total++; if (t.done) done++; })));
+        const pct = total ? Math.round(done/total*100) : 0;
+        const color = pctColor(pct);
+        return `
+            <div class="project-card" style="--proj-color:${p.color}" onclick="enterProject('${p.id}')">
+                <button class="project-edit-btn" onclick="event.stopPropagation();openProjectModal('${p.id}')">⚙️</button>
+                <div class="project-card-name">${esc(p.name)}</div>
+                <div class="project-card-meta">
+                    ${p.address     ? `📍 ${esc(p.address)}<br>` : ''}
+                    ${p.description ? `${esc(p.description)}`    : ''}
+                    ${!p.address && !p.description ? '<span style="color:#ccc">Sin descripción</span>' : ''}
+                </div>
+                <div class="project-card-stats">
+                    <div class="proj-stat">
+                        <div class="proj-stat-val" style="color:${color}">${pct}%</div>
+                        <div class="proj-stat-lbl">progreso</div>
+                    </div>
+                    <div class="proj-stat">
+                        <div class="proj-stat-val">${done}/${total}</div>
+                        <div class="proj-stat-lbl">tareas</div>
+                    </div>
+                    <div class="proj-stat">
+                        <div class="proj-stat-val">${rooms.length}</div>
+                        <div class="proj-stat-lbl">estancias</div>
+                    </div>
+                </div>
+            </div>`;
+    }).join('');
+
+    return `
+        <div class="projects-page">
+            <div class="projects-topbar">
+                <span style="font-size:22px">🏗️</span>
+                <h1>Gestión de Obra</h1>
+                <button class="btn btn-primary" onclick="openProjectModal()" style="font-size:13px;padding:8px 16px">＋ Nuevo proyecto</button>
+            </div>
+            <div class="projects-body">
+                <div class="projects-title">Mis proyectos</div>
+                <div class="projects-sub">${state.projects.length} proyecto${state.projects.length!==1?'s':''} · Selecciona uno para continuar.</div>
+                <div class="card-grid">
+                    ${cards}
+                    <button class="project-add-card" onclick="openProjectModal()">
+                        <span class="pa-icon">＋</span>
+                        <span>Nuevo proyecto</span>
+                    </button>
+                </div>
+            </div>
+        </div>`;
+}
+
+// ================================================================
 // RENDER — PHOTOS PANEL
 // ================================================================
 
@@ -1855,6 +2120,11 @@ function renderContent() {
 }
 
 function renderAll() {
+    if (!state.currentProjectId || state.view === 'projects') {
+        document.getElementById('app').innerHTML = renderProjectsLayout();
+        return;
+    }
+
     const contentEl = document.getElementById('content');
     const scrollY   = contentEl ? contentEl.scrollTop : 0;
     const op        = overallProgress();
@@ -1864,11 +2134,12 @@ function renderAll() {
     const inFot     = state.view === 'photos';
     const inEmp     = state.view === 'companies';
     const inNot     = state.view === 'notes';
+    const proj      = state.projects.find(p => p.id === state.currentProjectId);
 
     document.getElementById('app').innerHTML = `
         <div class="header">
-            <span style="font-size:20px;flex-shrink:0">🏗️</span>
-            <h1>Gestión de Obra</h1>
+            <button class="proj-back-btn" onclick="exitToProjects()">◀ Proyectos</button>
+            <span class="proj-name-badge" title="${esc(proj?.name||'')}">${esc(proj?.name||'Obra')}</span>
             <div class="header-tabs">
                 <button class="header-tab ${inEst?'active':''}" onclick="navigate('dashboard')">🏠 Estancias</button>
                 <button class="header-tab ${inOfi?'active':''}" onclick="navigate('trades')">👷 Oficios</button>
