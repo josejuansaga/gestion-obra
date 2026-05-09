@@ -611,13 +611,13 @@ function uploadCertPhoto(roomId, taskId) {
 function approveCert(roomId, taskId) {
     const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
     if (!task) return;
-    task.certStatus = 'approved'; task.certComment = '';
+    task.done = true; task.certStatus = 'approved'; task.certComment = '';
     saveState(); renderAll();
 }
 function requestRevision(roomId, taskId, comment) {
     const task = Object.values(state.rooms.find(r => r.id === roomId)?.trades || {}).flat().find(t => t.id === taskId);
     if (!task) return;
-    task.certStatus = 'revision'; task.certComment = comment || '';
+    task.done = false; task.certStatus = 'revision'; task.certComment = comment || '';
     saveState(); renderAll();
 }
 function openRevisionPrompt(roomId, taskId) {
@@ -1043,9 +1043,9 @@ function renderTaskRow(roomId, tradeId, task) {
         <div class="task-row" draggable="true"
              ondragstart="handleDragStart(event,this.closest('.task-container'))"
              ondragend="handleDragEnd()"
-             onclick="toggleTask('${roomId}','${task.id}')">
+             onclick="toggleDetail('${task.id}')">
             <span class="drag-handle" onclick="event.stopPropagation()">⠿</span>
-            <div class="task-check ${task.done?'checked':''}">✓</div>
+            <div class="task-check ${task.done?'checked':''}" onclick="event.stopPropagation()">✓</div>
             <div style="flex:1;min-width:0">
                 <span class="task-text ${task.done?'done':''}">${esc(task.text)}</span>
                 ${task.desc ? `<div class="task-desc-preview">${esc(task.desc)}</div>` : ''}
@@ -1100,7 +1100,7 @@ function renderTaskRow(roomId, tradeId, task) {
             <textarea class="task-notes-inp" placeholder="Notas, empresa responsable, observaciones…"
                 onclick="event.stopPropagation()"
                 onblur="saveTaskField('${roomId}','${task.id}','notes',this.value)">${esc(task.notes||'')}</textarea>
-            ${task.done ? renderCertSection(roomId, task) : ''}
+            ${renderCertSection(roomId, task)}
         </div>
     </div>`;
 }
@@ -1421,12 +1421,11 @@ function renderCertSection(roomId, task) {
             <button class="cert-btn cert-btn-photo" onclick="uploadCertPhoto('${roomId}','${task.id}')">
                 📷 ${photo ? 'Cambiar foto' : 'Añadir foto'}
             </button>
-            ${photo && task.certStatus !== 'approved' ? `
+            ${task.certStatus !== 'approved' ? `
             <button class="cert-btn cert-btn-approve" onclick="approveCert('${roomId}','${task.id}')">✅ Aprobar</button>
-            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Pedir revisión</button>` : ''}
-            ${photo && task.certStatus === 'approved' ? `
-            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Reabrir</button>` : ''}
-            ${photo ? `<button class="cert-btn" style="color:#ccc" onclick="deleteCertPhoto('${roomId}','${task.id}')">✕</button>` : ''}
+            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Pedir revisión</button>` : `
+            <button class="cert-btn cert-btn-revision" onclick="openRevisionPrompt('${roomId}','${task.id}')">⚠️ Reabrir</button>`}
+            ${photo ? `<button class="cert-btn" style="color:#ccc;border-color:#eee" onclick="deleteCertPhoto('${roomId}','${task.id}')">✕ Foto</button>` : ''}
         </div>
     </div>`;
 }
