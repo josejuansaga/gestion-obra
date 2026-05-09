@@ -250,6 +250,7 @@
         .task-notes-inp   { width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; font-family:inherit; resize:vertical; min-height:56px; color:var(--text); transition:border-color .15s; }
         .task-notes-inp:focus { outline:none; border-color:var(--primary); }
         .task-notes-preview { font-size:12px; color:var(--text-light); padding:0 6px 6px 44px; font-style:italic; white-space:pre-wrap; }
+        .task-desc-preview  { font-size:12px; color:var(--text-light); padding:2px 6px 4px 46px; line-height:1.5; }
 
         /* Add-task row */
         .task-add-row { display:flex; align-items:center; gap:8px; padding:10px 2px 6px; border-top:1px dashed #e8e8e8; margin-top:4px; }
@@ -853,7 +854,7 @@ function renderMaterialsInner(room) {
 // ================================================================
 
 function renderTaskRow(roomId, tradeId, task) {
-    const hasData  = !!(task.notes || task.qty || task.price);
+    const hasData  = !!(task.desc || task.notes || task.qty || task.price);
     const badge    = taskBadgeText(task);
     const cost     = taskCost(task);
     const unitSel  = UNITS.map(u =>
@@ -871,7 +872,10 @@ function renderTaskRow(roomId, tradeId, task) {
              onclick="toggleTask('${roomId}','${task.id}')">
             <span class="drag-handle" onclick="event.stopPropagation()">⠿</span>
             <div class="task-check ${task.done?'checked':''}">✓</div>
-            <span class="task-text ${task.done?'done':''}">${esc(task.text)}</span>
+            <div style="flex:1;min-width:0">
+                <span class="task-text ${task.done?'done':''}">${esc(task.text)}</span>
+                ${task.desc ? `<div class="task-desc-preview">${esc(task.desc)}</div>` : ''}
+            </div>
             <span class="task-badge ${badge?'visible':''}" id="badge_${task.id}">${badge}</span>
             <button id="detailbtn_${task.id}" class="task-detail-btn ${hasData?'has-data':''}"
                 title="${hasData?'Ver detalles':'Añadir cantidad / notas'}"
@@ -881,6 +885,12 @@ function renderTaskRow(roomId, tradeId, task) {
         </div>
         ${task.notes && !task.qty && !task.price ? `<div class="task-notes-preview">${esc(task.notes)}</div>` : ''}
         <div id="detail_${task.id}" class="task-detail" style="display:none">
+            <div style="margin-bottom:10px">
+                <span class="cost-label">Descripción del trabajo</span>
+                <textarea class="task-notes-inp" style="margin-top:4px" placeholder="Describe qué se va a realizar, materiales, acabados…"
+                    onclick="event.stopPropagation()"
+                    onblur="saveTaskField('${roomId}','${task.id}','desc',this.value)">${esc(task.desc||'')}</textarea>
+            </div>
             <div class="detail-cost-row">
                 <div class="cost-field">
                     <span class="cost-label">Cantidad</span>
