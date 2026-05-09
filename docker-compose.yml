@@ -1,11 +1,23 @@
 services:
-  gestor-obra:
+  web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: gestor-obra
+    container_name: gestor-obra-web
     ports:
       - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: gestor-obra-api
     volumes:
       - ./runtime-data:/data
+    environment:
+      - DATA_DIR=/data
+      - PORT=3000
     restart: unless-stopped

@@ -4458,5 +4458,338 @@ initState();
 renderAll();
 bootFolderPersistence();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     API SYNC LAYER  –  multi-user support via REST + SSE
+     Only activates when running behind the API proxy (not file://)
+     Falls back silently to localStorage-only mode otherwise.
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+(function apiSyncLayer() {
+    'use strict';
+
+    // Skip if serving straight from the filesystem
+    if (window.location.protocol === 'file:') {
+        console.info('[API] Modo local (file://), sync desactivado.');
+        return;
+    }
+
+    // ── Low-level fetch helper (fire-and-forget friendly) ─────────
+    let _lastSaveTs = 0; // used to debounce own-save SSE bounce
+
+    async function apiFetch(path, opts = {}) {
+        try {
+            const r = await fetch(path, opts);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return await r.json();
+        } catch (e) {
+            console.warn('[API]', path, e.message);
+            return null;
+        }
+    }
+
+    // ── Wrap saveIndex ────────────────────────────────────────────
+    const _origSaveIndex = window.saveIndex;
+    window.saveIndex = function saveIndex() {
+        _origSaveIndex();
+        _lastSaveTs = Date.now();
+        apiFetch('/api/index', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                projects: state.projects,
+                currentProjectId: state.currentProjectId,
+            }),
+        });
+    };
+
+    // ── Wrap saveCurrentProject ───────────────────────────────────
+    const _origSaveProject = window.saveCurrentProject;
+    window.saveCurrentProject = function saveCurrentProject() {
+        _origSaveProject();
+        if (!state.currentProjectId) return;
+        _lastSaveTs = Date.now();
+        apiFetch('/api/projects/' + state.currentProjectId, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                rooms:           state.rooms,
+                tradeInfo:       state.tradeInfo,
+                companies:       state.companies,
+                projectNotes:    state.projectNotes,
+                projectCalendar: state.projectCalendar,
+                sectionPhotos:   state.sectionPhotos,
+                documents:       state.documents,
+            }),
+        });
+    };
+
+    // ── Helper: apply server project data into state ──────────────
+    function applyProjectData(d) {
+        if (!d) return false;
+        state.rooms           = d.rooms           || state.rooms;
+        state.tradeInfo       = d.tradeInfo       || state.tradeInfo;
+        state.companies       = d.companies       || state.companies;
+        state.projectNotes    = d.projectNotes    || state.projectNotes;
+        state.projectCalendar = d.projectCalendar || state.projectCalendar;
+        state.sectionPhotos   = d.sectionPhotos   || state.sectionPhotos;
+        // documents: only replace metadata entries, not localStorage blobs
+        if (d.documents) state.documents = d.documents;
+        return true;
+    }
+
+    // ── Patch initState: load from API after fast localStorage load ─
+    const _origInitState = window.initState;
+    window.initState = function initState() {
+        _origInitState(); // fast localStorage load
+        // Then async-update from server
+        (async () => {
+            const idx = await apiFetch('/api/index');
+            if (!idx || !Array.isArray(idx.projects)) return;
+            state.projects = idx.projects.map(normalizeProject);
+            const pid = idx.currentProjectId;
+            if (pid && state.projects.find(p => p.id === pid)) {
+                state.currentProjectId = pid;
+                const d = await apiFetch('/api/projects/' + pid);
+                if (applyProjectData(d)) state.view = 'dashboard';
+            } else if (state.projects.length) {
+                state.view = 'projects';
+            }
+            renderAll();
+        })().catch(() => {});
+    };
+
+    // ── Patch loadProject: also fetch fresh data from API ─────────
+    const _origLoadProject = window.loadProject;
+    window.loadProject = function loadProject(projectId) {
+        _origLoadProject(projectId);
+        (async () => {
+            const d = await apiFetch('/api/projects/' + projectId);
+            if (applyProjectData(d)) renderAll();
+        })().catch(() => {});
+    };
+
+    // ── Replace resizeAndUpload: upload directly to /api/photos ───
+    window.resizeAndUpload = function resizeAndUpload(callback) {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = 'image/*';
+        input.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                const img = new Image();
+                img.onload = () => {
+                    const MAX = 1400;
+                    let w = img.width, h = img.height;
+                    if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    canvas.toBlob(async blob => {
+                        const fd = new FormData();
+                        fd.append('file', blob, 'photo.jpg');
+                        try {
+                            const r = await fetch('/api/photos', { method: 'POST', body: fd });
+                            if (r.ok) {
+                                const { url } = await r.json();
+                                callback(url); // '/api/photos/xxx.jpg'
+                                return;
+                            }
+                        } catch (_) {}
+                        // Fallback: base64
+                        callback(canvas.toDataURL('image/jpeg', 0.78));
+                    }, 'image/jpeg', 0.78);
+                };
+                img.src = ev.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+        input.click();
+    };
+
+    // ── Replace addSectionPhoto: store API URL directly as photoId ─
+    window.addSectionPhoto = function addSectionPhoto(roomId) {
+        resizeAndUpload(photoId => {
+            // photoId is now '/api/photos/xxx.jpg' (or base64 on fallback)
+            if (photoId.startsWith('data:') && !storePhoto(uid(), photoId)) return;
+            if (!state.sectionPhotos[roomId]) state.sectionPhotos[roomId] = [];
+            state.sectionPhotos[roomId].push({
+                id: uid(), photoId, caption: '', date: new Date().toISOString(),
+            });
+            saveState(); renderAll();
+        });
+    };
+
+    // ── Replace uploadCertPhoto: same pattern ─────────────────────
+    window.uploadCertPhoto = function uploadCertPhoto(roomId, taskId) {
+        resizeAndUpload(photoId => {
+            const task = Object.values(
+                state.rooms.find(r => r.id === roomId)?.trades || {}
+            ).flat().find(t => t.id === taskId);
+            if (!task) return;
+            if (task.certPhotoId) removePhoto(task.certPhotoId);
+            task.certPhotoId = photoId;
+            task.certStatus  = 'pending';
+            task.certComment = task.certComment || '';
+            task.certDate    = new Date().toISOString();
+            saveState(); renderAll();
+        });
+    };
+
+    // ── Patch getPhoto: API URLs returned directly ─────────────────
+    window.getPhoto = function getPhoto(photoId) {
+        if (!photoId) return null;
+        if (photoId.startsWith('/api/')) return photoId;
+        return _getPhotoStore().blobs[photoId] || null;
+    };
+
+    // ── Patch removePhoto: DELETE from API when needed ─────────────
+    const _origRemovePhoto = window.removePhoto;
+    window.removePhoto = function removePhoto(photoId) {
+        if (photoId && photoId.startsWith('/api/photos/')) {
+            apiFetch(photoId, { method: 'DELETE' });
+            return; // not in localStorage
+        }
+        _origRemovePhoto(photoId);
+    };
+
+    // ── Replace processDocumentFiles: upload to /api/documents ────
+    function _uploadFilesToApi(files, onEntry) {
+        if (!files.length) return;
+        let pending = files.length;
+        files.forEach(file => {
+            const fd = new FormData();
+            fd.append('file', file, file.name);
+            fetch('/api/documents', { method: 'POST', body: fd })
+                .then(r => r.ok ? r.json() : Promise.reject())
+                .then(({ url, originalName }) => {
+                    onEntry({
+                        id: uid(), docId: url, notes: '',
+                        name: (originalName || file.name).replace(/\.[^.]+$/, ''),
+                        fileType: file.type,
+                        date: new Date().toISOString(),
+                    });
+                })
+                .catch(() => {
+                    // Fallback: base64
+                    const reader = new FileReader();
+                    reader.onload = ev => {
+                        const docId = uid();
+                        if (storeDoc(docId, ev.target.result)) {
+                            onEntry({
+                                id: uid(), docId, notes: '',
+                                name: file.name.replace(/\.[^.]+$/, ''),
+                                fileType: file.type,
+                                date: new Date().toISOString(),
+                            });
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                })
+                .finally(() => { if (--pending === 0) { saveState(); renderAll(); } });
+        });
+    }
+
+    window.processDocumentFiles = function processDocumentFiles(catKey, fileList) {
+        const files = Array.from(fileList || []).filter(Boolean);
+        _uploadFilesToApi(files, entry => {
+            if (!state.documents[catKey]) state.documents[catKey] = [];
+            state.documents[catKey].push(entry);
+        });
+    };
+
+    window.processTradeDocumentFiles = function processTradeDocumentFiles(tid, fileList) {
+        if (!state.tradeInfo[tid]) state.tradeInfo[tid] = getTradeInfo(tid);
+        const files = Array.from(fileList || []).filter(Boolean);
+        _uploadFilesToApi(files, entry => {
+            if (!Array.isArray(state.tradeInfo[tid].tradeDocuments))
+                state.tradeInfo[tid].tradeDocuments = [];
+            state.tradeInfo[tid].tradeDocuments.push(entry);
+        });
+    };
+
+    // ── Patch removeDoc: DELETE from API when needed ───────────────
+    const _origRemoveDoc = window.removeDoc;
+    window.removeDoc = function removeDoc(docId) {
+        if (docId && docId.startsWith('/api/documents/')) {
+            apiFetch(docId, { method: 'DELETE' });
+            return;
+        }
+        _origRemoveDoc(docId);
+    };
+
+    // ── Patch viewDocument: open API URLs directly ─────────────────
+    const _origViewDocument = window.viewDocument;
+    window.viewDocument = function viewDocument(docId) {
+        if (docId && docId.startsWith('/api/')) {
+            window.open(docId, '_blank');
+            return;
+        }
+        _origViewDocument(docId);
+    };
+
+    // ── Patch delete project: also remove from API ─────────────────
+    // The existing deleteProject() calls DELETE /api/projects/:id...
+    // we just need to ensure the server.js DELETE also broadcasts.
+    // server.js already does broadcast('index-updated') on DELETE. ✓
+
+    // ── SSE: real-time sync between users ─────────────────────────
+    let _sseSource = null;
+    let _sseRetry  = null;
+
+    function connectSSE() {
+        if (_sseSource) { _sseSource.close(); _sseSource = null; }
+        _sseSource = new EventSource('/api/events');
+
+        _sseSource.addEventListener('project-updated', async ev => {
+            try {
+                const { id } = JSON.parse(ev.data);
+                if (id !== state.currentProjectId) return;
+                // Ignore bounce from our own save (within 3s)
+                if (Date.now() - _lastSaveTs < 3000) return;
+                const d = await apiFetch('/api/projects/' + id);
+                if (applyProjectData(d)) renderAll();
+            } catch (_) {}
+        });
+
+        _sseSource.addEventListener('index-updated', async () => {
+            try {
+                if (Date.now() - _lastSaveTs < 3000) return;
+                const idx = await apiFetch('/api/index');
+                if (!idx) return;
+                state.projects = (idx.projects || []).map(normalizeProject);
+                // If our project was deleted remotely, exit to project list
+                if (state.currentProjectId &&
+                    !state.projects.find(p => p.id === state.currentProjectId)) {
+                    state.currentProjectId = null;
+                    state.view = 'projects';
+                }
+                renderAll();
+            } catch (_) {}
+        });
+
+        _sseSource.onerror = () => {
+            _sseSource.close();
+            _sseSource = null;
+            clearTimeout(_sseRetry);
+            _sseRetry = setTimeout(connectSSE, 5000);
+        };
+
+        console.info('[API] SSE conectado');
+    }
+
+    // ── Boot: verify API is available, then start SSE ─────────────
+    apiFetch('/api/health').then(h => {
+        if (h && h.ok) {
+            console.info('[API] Backend disponible ✓ clientes SSE:', h.clients);
+            connectSSE();
+        } else {
+            console.warn('[API] Backend no responde, modo solo-local.');
+        }
+    });
+
+})();
+</script>
 </body>
 </html>
