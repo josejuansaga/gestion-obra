@@ -270,6 +270,34 @@
         ::-webkit-scrollbar       { width:6px; }
         ::-webkit-scrollbar-track { background:transparent; }
         ::-webkit-scrollbar-thumb { background:#ddd; border-radius:3px; }
+
+        /* ─── Companies ─── */
+        .company-card { background:white; border-radius:14px; padding:20px; border:2px solid transparent; box-shadow:0 1px 4px rgba(0,0,0,.07); transition:all .2s; cursor:pointer; }
+        .company-card:hover { border-color:var(--primary); transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.1); }
+        .company-card-top { display:flex; align-items:flex-start; gap:12px; margin-bottom:12px; }
+        .company-avatar { width:48px; height:48px; border-radius:12px; background:#e3f2fd; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+        .company-name { font-size:16px; font-weight:700; margin-bottom:3px; }
+        .company-meta { font-size:12px; color:var(--text-light); line-height:1.8; }
+        .trade-tag { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; margin:2px 2px 0 0; }
+
+        /* ─── Notes ─── */
+        .note-add-box { background:white; border-radius:14px; padding:20px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.07); }
+        .note-controls { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+        .note-cat-sel { padding:8px 12px; border:1.5px solid var(--border); border-radius:9px; font-size:14px; font-family:inherit; background:white; cursor:pointer; }
+        .note-cat-sel:focus { outline:none; border-color:var(--primary); }
+        .note-add-row { display:flex; gap:10px; align-items:flex-end; }
+        .note-textarea { flex:1; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:14px; font-family:inherit; resize:vertical; min-height:72px; transition:border-color .15s; }
+        .note-textarea:focus { outline:none; border-color:var(--primary); }
+        .note-entry { background:white; border-radius:12px; padding:16px 20px; margin-bottom:10px; box-shadow:0 1px 4px rgba(0,0,0,.07); display:flex; gap:14px; align-items:flex-start; }
+        .note-cat-badge { padding:3px 10px; border-radius:10px; font-size:11px; font-weight:700; flex-shrink:0; white-space:nowrap; margin-top:2px; }
+        .note-cat-df      { background:#e3f2fd; color:#1565c0; }
+        .note-cat-gestora { background:#f3e5f5; color:#6a1b9a; }
+        .note-cat-general { background:#eceff1; color:#37474f; }
+        .note-body { flex:1; }
+        .note-date { font-size:11px; color:var(--text-light); margin-bottom:5px; }
+        .note-text { font-size:14px; line-height:1.6; white-space:pre-wrap; }
+        .note-del-btn { background:none; border:none; color:#ccc; cursor:pointer; font-size:15px; padding:2px 6px; border-radius:4px; flex-shrink:0; transition:all .15s; }
+        .note-del-btn:hover { background:#fdecea; color:var(--danger); }
     </style>
 </head>
 <body>
@@ -288,6 +316,48 @@
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
             <button class="btn btn-primary" id="addConfirmBtn" onclick="confirmAdd()" disabled>Añadir estancia</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Modal: empresa ── -->
+<div class="modal-overlay" id="companyModal" onclick="closeCompanyModal(event)">
+    <div class="modal" style="max-width:500px">
+        <div class="modal-title" id="companyModalTitle">Nueva empresa</div>
+        <div class="modal-field">
+            <label class="modal-label">Nombre / Razón social *</label>
+            <input class="modal-input" id="cmpName" type="text" placeholder="Ej: Construcciones García S.L.">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="modal-field">
+                <label class="modal-label">Teléfono</label>
+                <input class="modal-input" id="cmpPhone" type="tel" placeholder="666 123 456">
+            </div>
+            <div class="modal-field">
+                <label class="modal-label">CIF / NIF</label>
+                <input class="modal-input" id="cmpCif" type="text" placeholder="B12345678">
+            </div>
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Email</label>
+            <input class="modal-input" id="cmpEmail" type="email" placeholder="empresa@email.com">
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Dirección</label>
+            <input class="modal-input" id="cmpAddress" type="text" placeholder="Calle, número, ciudad">
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Oficios que realiza</label>
+            <div id="cmpTradesGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Notas internas</label>
+            <textarea class="modal-input" id="cmpNotes" rows="3" style="resize:vertical" placeholder="Garantías, condiciones, observaciones…"></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeCompanyModal()">Cancelar</button>
+            <button class="btn btn-danger" id="cmpDeleteBtn" style="display:none" onclick="deleteCompanyFromModal()">🗑 Eliminar</button>
+            <button class="btn btn-primary" onclick="confirmCompany()">Guardar empresa</button>
         </div>
     </div>
 </div>
@@ -340,12 +410,14 @@ const ROOM_TEMPLATES = {
 // ================================================================
 
 const state = {
-    view: 'dashboard',  // dashboard|room|trades|trade|materials
+    view: 'dashboard',  // dashboard|room|trades|trade|materials|companies|notes
     currentRoom: null,
     currentTrade: null,
     rooms: [],
     collapsed: {},
-    tradeInfo: {},      // { tradeId:{ company, phone, budget } }
+    tradeInfo: {},      // { tradeId:{ company, phone, budget, companyId } }
+    companies: [],      // [{ id, name, phone, email, cif, address, trades:[], notes }]
+    projectNotes: [],   // [{ id, date, text, category }]
 };
 
 function uid()  { return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
@@ -373,12 +445,17 @@ function taskBadgeText(task) {
 function initState() {
     try {
         const p = JSON.parse(localStorage.getItem('obra_v3') || '{}');
-        if (Array.isArray(p.rooms)) state.rooms = p.rooms;
-        if (p.tradeInfo) state.tradeInfo = p.tradeInfo;
+        if (Array.isArray(p.rooms))        state.rooms        = p.rooms;
+        if (p.tradeInfo)                   state.tradeInfo    = p.tradeInfo;
+        if (Array.isArray(p.companies))    state.companies    = p.companies;
+        if (Array.isArray(p.projectNotes)) state.projectNotes = p.projectNotes;
     } catch(e) {}
 }
 function saveState() {
-    localStorage.setItem('obra_v3', JSON.stringify({ rooms: state.rooms, tradeInfo: state.tradeInfo }));
+    localStorage.setItem('obra_v3', JSON.stringify({
+        rooms: state.rooms, tradeInfo: state.tradeInfo,
+        companies: state.companies, projectNotes: state.projectNotes,
+    }));
 }
 function initRoomTrades(type) {
     const trades = {};
@@ -584,8 +661,102 @@ function deleteRoom(roomId) {
     saveState(); state.view = 'dashboard'; state.currentRoom = null; renderAll();
 }
 function updateTradeInfo(tid, field, val) {
-    if (!state.tradeInfo[tid]) state.tradeInfo[tid] = { company:'', phone:'', budget:'' };
+    if (!state.tradeInfo[tid]) state.tradeInfo[tid] = { company:'', phone:'', budget:'', companyId:'' };
     state.tradeInfo[tid][field] = val; saveState();
+}
+function assignCompanyToTrade(tid, companyId) {
+    if (!state.tradeInfo[tid]) state.tradeInfo[tid] = { company:'', phone:'', budget:'', companyId:'' };
+    state.tradeInfo[tid].companyId = companyId;
+    if (companyId) {
+        const c = state.companies.find(c => c.id === companyId);
+        if (c) { state.tradeInfo[tid].company = c.name; state.tradeInfo[tid].phone = c.phone; }
+    }
+    saveState(); renderAll();
+}
+
+// ================================================================
+// COMPANY ACTIONS
+// ================================================================
+
+let _editCompanyId = null;
+let _cmpSelTrades  = new Set();
+
+function openCompanyModal(companyId) {
+    _editCompanyId = companyId || null;
+    _cmpSelTrades  = new Set();
+    const c = companyId ? state.companies.find(c => c.id === companyId) : null;
+    document.getElementById('companyModalTitle').textContent = c ? 'Editar empresa' : 'Nueva empresa';
+    document.getElementById('cmpName').value    = c ? c.name    : '';
+    document.getElementById('cmpPhone').value   = c ? c.phone   : '';
+    document.getElementById('cmpCif').value     = c ? c.cif     : '';
+    document.getElementById('cmpEmail').value   = c ? c.email   : '';
+    document.getElementById('cmpAddress').value = c ? c.address : '';
+    document.getElementById('cmpNotes').value   = c ? c.notes   : '';
+    document.getElementById('cmpDeleteBtn').style.display = c ? 'inline-flex' : 'none';
+    if (c && c.trades) c.trades.forEach(t => _cmpSelTrades.add(t));
+    document.getElementById('cmpTradesGrid').innerHTML = Object.entries(TRADES).map(([tid, trade]) =>
+        `<button type="button" class="type-btn" id="ctbtn_${tid}"
+            style="flex-direction:row;gap:6px;padding:6px 10px;font-size:12px"
+            onclick="toggleCmpTrade('${tid}')">${trade.icon} ${trade.name}</button>`
+    ).join('');
+    _cmpSelTrades.forEach(tid => document.getElementById(`ctbtn_${tid}`)?.classList.add('selected'));
+    document.getElementById('companyModal').classList.add('open');
+    setTimeout(() => document.getElementById('cmpName').focus(), 100);
+}
+function closeCompanyModal(e) {
+    if (e && e.target !== document.getElementById('companyModal')) return;
+    document.getElementById('companyModal').classList.remove('open');
+}
+function toggleCmpTrade(tid) {
+    if (_cmpSelTrades.has(tid)) _cmpSelTrades.delete(tid);
+    else _cmpSelTrades.add(tid);
+    document.getElementById(`ctbtn_${tid}`)?.classList.toggle('selected', _cmpSelTrades.has(tid));
+}
+function confirmCompany() {
+    const name = document.getElementById('cmpName').value.trim();
+    if (!name) { document.getElementById('cmpName').focus(); return; }
+    const data = {
+        name, trades: [..._cmpSelTrades],
+        phone:   document.getElementById('cmpPhone').value.trim(),
+        cif:     document.getElementById('cmpCif').value.trim(),
+        email:   document.getElementById('cmpEmail').value.trim(),
+        address: document.getElementById('cmpAddress').value.trim(),
+        notes:   document.getElementById('cmpNotes').value.trim(),
+    };
+    if (_editCompanyId) {
+        const c = state.companies.find(c => c.id === _editCompanyId);
+        if (c) Object.assign(c, data);
+    } else {
+        state.companies.push({ id: uid(), ...data });
+    }
+    saveState(); closeCompanyModal(); renderAll();
+}
+function deleteCompanyFromModal() {
+    if (!_editCompanyId) return;
+    const c = state.companies.find(c => c.id === _editCompanyId);
+    if (!c || !confirm(`¿Eliminar "${c.name}"?`)) return;
+    state.companies = state.companies.filter(c => c.id !== _editCompanyId);
+    Object.values(state.tradeInfo).forEach(info => { if (info.companyId === _editCompanyId) delete info.companyId; });
+    saveState(); closeCompanyModal(); renderAll();
+}
+
+// ================================================================
+// NOTE ACTIONS
+// ================================================================
+
+function addNote() {
+    const text = document.getElementById('noteTextarea')?.value.trim();
+    const cat  = document.getElementById('noteCatSel')?.value || 'general';
+    if (!text) { document.getElementById('noteTextarea')?.focus(); return; }
+    state.projectNotes.unshift({ id: uid(), date: new Date().toISOString(), text, category: cat });
+    saveState();
+    document.getElementById('noteTextarea').value = '';
+    renderAll();
+}
+function deleteNote(noteId) {
+    if (!confirm('¿Eliminar esta nota?')) return;
+    state.projectNotes = state.projectNotes.filter(n => n.id !== noteId);
+    saveState(); renderAll();
 }
 
 // ================================================================
@@ -789,12 +960,14 @@ function renderTradeSection(roomId, tradeId, tasks, colKey) {
 
 function renderSidebar() {
     const op = overallProgress();
-    const inOficiosSection   = state.view === 'trades' || state.view === 'trade';
+    const inOficiosSection   = state.view === 'trades'    || state.view === 'trade';
     const inMaterialsSection = state.view === 'materials';
+    const inCompaniesSection = state.view === 'companies';
+    const inNotesSection     = state.view === 'notes';
 
     let nav = '', addBtn = '', sectionTitle = '';
 
-    if (!inOficiosSection && !inMaterialsSection) {
+    if (!inOficiosSection && !inMaterialsSection && !inCompaniesSection && !inNotesSection) {
         sectionTitle = 'Estancias';
         addBtn = `<button class="sidebar-add-btn" onclick="openModal()">＋ Nueva estancia</button>`;
         nav = state.rooms.map(room => {
@@ -825,7 +998,7 @@ function renderSidebar() {
                 </div>
             </div>`;
         }).join('');
-    } else {
+    } else if (inMaterialsSection) {
         sectionTitle = 'Materiales';
         const data = getMaterialsData();
         nav = `<div style="padding:12px 16px">
@@ -839,6 +1012,42 @@ function renderSidebar() {
             <div style="display:flex;justify-content:space-between;font-size:12px">
                 <span style="color:var(--primary)">⏳ Pendiente</span>
                 <span style="font-weight:600">${formatEur(data.pendingCost)}</span>
+            </div>
+        </div>`;
+    } else if (inCompaniesSection) {
+        sectionTitle = 'Empresas';
+        addBtn = `<button class="sidebar-add-btn" onclick="openCompanyModal()">＋ Nueva empresa</button>`;
+        nav = state.companies.length === 0
+            ? '<div style="padding:16px;font-size:12px;color:var(--text-light);text-align:center">Sin empresas</div>'
+            : state.companies.map(c => {
+                const icons = (c.trades||[]).slice(0,4).map(tid => TRADES[tid]?.icon||'').join(' ');
+                return `<div class="nav-item" onclick="openCompanyModal('${c.id}')">
+                    <span class="nav-icon">🏢</span>
+                    <div class="nav-info">
+                        <div class="nav-name">${esc(c.name)}</div>
+                        <div class="nav-sub">${c.phone||'Sin teléfono'}${icons?' · '+icons:''}</div>
+                    </div>
+                </div>`;
+            }).join('');
+    } else {
+        sectionTitle = 'Notas';
+        const cats = { df:0, gestora:0, general:0 };
+        state.projectNotes.forEach(n => { cats[n.category] = (cats[n.category]||0)+1; });
+        nav = `<div style="padding:12px 16px">
+            <div style="font-size:12px;color:var(--text-light);margin-bottom:8px">${state.projectNotes.length} nota${state.projectNotes.length!==1?'s':''}</div>
+            <div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span class="note-cat-badge note-cat-df" style="font-size:10px">Dir. Facultativa</span>
+                    <span style="font-weight:700">${cats.df}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span class="note-cat-badge note-cat-gestora" style="font-size:10px">Gestora</span>
+                    <span style="font-weight:700">${cats.gestora}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span class="note-cat-badge note-cat-general" style="font-size:10px">General</span>
+                    <span style="font-weight:700">${cats.general}</span>
+                </div>
             </div>
         </div>`;
     }
@@ -1036,6 +1245,14 @@ function renderTradeDetail(tid) {
             <div class="detail-pbar"><div class="detail-pbar-fill" style="width:${p.pct}%;background:${color}"></div></div>
             <div class="section-label">Datos del oficio</div>
             <div class="trade-info-grid">
+                ${state.companies.length > 0 ? `
+                <div class="info-field" style="grid-column:1/-1">
+                    <label class="info-label">Empresa del directorio</label>
+                    <select class="info-input" onchange="assignCompanyToTrade('${tid}',this.value)">
+                        <option value="">— Seleccionar empresa —</option>
+                        ${state.companies.map(c => `<option value="${c.id}" ${info.companyId===c.id?'selected':''}>${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('')}
+                    </select>
+                </div>` : ''}
                 <div class="info-field">
                     <label class="info-label">Empresa / Autónomo</label>
                     <input class="info-input" type="text" value="${esc(info.company)}" placeholder="Nombre de la empresa…" oninput="updateTradeInfo('${tid}','company',this.value)">
@@ -1161,6 +1378,108 @@ function renderMaterialsPanel() {
 }
 
 // ================================================================
+// RENDER — COMPANIES PANEL
+// ================================================================
+
+function renderCompaniesPanel() {
+    const cards = state.companies.length === 0
+        ? `<div class="empty-state">
+               <div class="empty-icon">🏢</div>
+               <h2>Sin empresas registradas</h2>
+               <p>Añade las empresas y autónomos que trabajan en la obra para asignarlas a cada oficio.</p>
+               <button class="add-room-btn" onclick="openCompanyModal()">＋ Añadir empresa</button>
+           </div>`
+        : `<div class="card-grid">${state.companies.map(c => {
+            const tradeTags = (c.trades||[]).map(tid => {
+                const tr = TRADES[tid];
+                return tr ? `<span class="trade-tag" style="background:${tr.color}22;color:${tr.color}">${tr.icon} ${tr.name}</span>` : '';
+            }).join('');
+            const assignedTo = Object.entries(state.tradeInfo)
+                .filter(([,info]) => info.companyId === c.id)
+                .map(([tid]) => TRADES[tid]?.name).filter(Boolean);
+            return `
+                <div class="company-card" onclick="openCompanyModal('${c.id}')">
+                    <div class="company-card-top">
+                        <div class="company-avatar">🏢</div>
+                        <div style="flex:1;min-width:0">
+                            <div class="company-name">${esc(c.name)}</div>
+                            <div class="company-meta">
+                                ${c.phone   ? `📞 ${esc(c.phone)}<br>` : ''}
+                                ${c.email   ? `✉️ ${esc(c.email)}<br>` : ''}
+                                ${c.cif     ? `🪪 ${esc(c.cif)}`       : ''}
+                            </div>
+                        </div>
+                    </div>
+                    ${tradeTags ? `<div style="margin-bottom:8px">${tradeTags}</div>` : ''}
+                    ${assignedTo.length ? `<div style="font-size:11px;color:var(--text-light)">Asignada a: ${assignedTo.join(', ')}</div>` : ''}
+                    ${c.notes ? `<div style="font-size:12px;color:var(--text-light);margin-top:6px;font-style:italic">${esc(c.notes)}</div>` : ''}
+                </div>`;
+        }).join('')}</div>`;
+
+    return `
+        <div class="dash-header">
+            <div><div class="page-title">Empresas</div><div class="page-sub">Directorio de empresas y autónomos · ${state.companies.length} registrada${state.companies.length!==1?'s':''}.</div></div>
+            <button class="add-room-btn" onclick="openCompanyModal()">＋ Nueva empresa</button>
+        </div>
+        ${cards}`;
+}
+
+// ================================================================
+// RENDER — NOTES PANEL
+// ================================================================
+
+const NOTE_CATS = {
+    df:      { label:'Dirección Facultativa', cls:'note-cat-df'      },
+    gestora: { label:'Empresa Gestora',       cls:'note-cat-gestora' },
+    general: { label:'General',               cls:'note-cat-general' },
+};
+
+function renderNotesPanel() {
+    const notesList = state.projectNotes.length === 0
+        ? `<div class="empty-state" style="padding:30px 0">
+               <div style="font-size:40px;margin-bottom:12px">📝</div>
+               <h2>Sin notas todavía</h2>
+               <p>Añade notas de seguimiento, actas o instrucciones para la dirección facultativa o la empresa gestora.</p>
+           </div>`
+        : state.projectNotes.map(n => {
+            const cat  = NOTE_CATS[n.category] || NOTE_CATS.general;
+            const date = new Date(n.date).toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+            return `
+                <div class="note-entry">
+                    <span class="note-cat-badge ${cat.cls}">${cat.label}</span>
+                    <div class="note-body">
+                        <div class="note-date">${date}</div>
+                        <div class="note-text">${esc(n.text)}</div>
+                    </div>
+                    <button class="note-del-btn" title="Eliminar nota" onclick="deleteNote('${n.id}')">✕</button>
+                </div>`;
+        }).join('');
+
+    return `
+        <div class="dash-header">
+            <div><div class="page-title">Notas internas</div><div class="page-sub">Seguimiento para dirección facultativa y empresa gestora.</div></div>
+        </div>
+        <div class="note-add-box">
+            <div class="section-label">Nueva nota</div>
+            <div class="note-controls">
+                <select class="note-cat-sel" id="noteCatSel">
+                    <option value="df">Dirección Facultativa</option>
+                    <option value="gestora">Empresa Gestora</option>
+                    <option value="general" selected>General</option>
+                </select>
+                <span style="font-size:12px;color:var(--text-light)">Ctrl+Enter para guardar</span>
+            </div>
+            <div class="note-add-row">
+                <textarea class="note-textarea" id="noteTextarea"
+                    placeholder="Escribe una nota, acta, incidencia o instrucción…"
+                    onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey))addNote()"></textarea>
+                <button class="btn btn-primary" onclick="addNote()" style="flex-shrink:0">Añadir</button>
+            </div>
+        </div>
+        ${notesList}`;
+}
+
+// ================================================================
 // FULL RENDER
 // ================================================================
 
@@ -1171,6 +1490,8 @@ function renderContent() {
         case 'trades':     return renderTradesList();
         case 'trade':      return renderTradeDetail(state.currentTrade);
         case 'materials':  return renderMaterialsPanel();
+        case 'companies':  return renderCompaniesPanel();
+        case 'notes':      return renderNotesPanel();
         default:           return renderDashboard();
     }
 }
@@ -1179,9 +1500,11 @@ function renderAll() {
     const contentEl = document.getElementById('content');
     const scrollY   = contentEl ? contentEl.scrollTop : 0;
     const op        = overallProgress();
-    const inEst     = state.view === 'dashboard' || state.view === 'room';
-    const inOfi     = state.view === 'trades'    || state.view === 'trade';
+    const inEst     = state.view === 'dashboard'  || state.view === 'room';
+    const inOfi     = state.view === 'trades'     || state.view === 'trade';
     const inMat     = state.view === 'materials';
+    const inEmp     = state.view === 'companies';
+    const inNot     = state.view === 'notes';
 
     document.getElementById('app').innerHTML = `
         <div class="header">
@@ -1191,6 +1514,8 @@ function renderAll() {
                 <button class="header-tab ${inEst?'active':''}" onclick="navigate('dashboard')">🏠 Estancias</button>
                 <button class="header-tab ${inOfi?'active':''}" onclick="navigate('trades')">👷 Oficios</button>
                 <button class="header-tab ${inMat?'active':''}" onclick="navigate('materials')">📦 Materiales</button>
+                <button class="header-tab ${inEmp?'active':''}" onclick="navigate('companies')">🏢 Empresas</button>
+                <button class="header-tab ${inNot?'active':''}" onclick="navigate('notes')">📝 Notas</button>
             </div>
             <div class="header-progress">
                 <span>${op.done}/${op.total}</span>
