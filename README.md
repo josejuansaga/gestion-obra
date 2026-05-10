@@ -22,8 +22,11 @@ Aplicación local en HTML para organizar una obra por proyectos, estancias, ofic
 ## Estructura del proyecto
 
 - [index.html](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/index.html) redirige a la aplicación.
-- [obra.html](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/obra.html) contiene la app completa.
+- [obra.html](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/obra.html) contiene la estructura HTML principal.
+- [src/css/app.css](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/src/css/app.css) contiene los estilos.
+- [src/js/app.js](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/src/js/app.js) contiene la lógica de la app.
 - [data/README.md](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/data/README.md) documenta la estructura prevista por proyecto.
+- [docs/V2-ROADMAP.md](C:/Users/JoseJuanSaGa/.codex/worktrees/9408/Construccion/docs/V2-ROADMAP.md) resume la base de la segunda versiÃ³n.
 
 ## Cómo se guarda ahora
 
@@ -131,12 +134,20 @@ Así tendrás una URL local estable y una carpeta de datos preparada para el sig
 - Puedes añadir documentos con el botón de subida.
 - También puedes arrastrar uno o varios archivos directamente dentro de cada categoría.
 
-## Siguiente paso recomendado
+## Estado técnico
 
-Si quieres dar otro salto de calidad, lo siguiente sería sacar el JavaScript y el CSS de `obra.html` a carpetas separadas:
+- La app ya no depende de un único `obra.html` gigante para CSS y JS.
+- Se ha limpiado la parte más conflictiva de funciones duplicadas para reducir errores al arrancar.
+- La portada del proyecto incluye ahora avisos de tareas retrasadas.
 
-- `src/js/`
-- `src/css/`
-- `data/proyectos/`
+## Navegacion actual
 
-Así será más fácil mantener la app cuando empiece a crecer.
+- `Panel de control`: usuarios, backup, importar, exportar, restaurar y personalizacion.
+- `Obras`: solo para crear, editar y abrir proyectos.
+- `Empresas`: directorio global compartido por todas las obras.
+
+## Empresas
+
+- Cada empresa guarda direccion fiscal, CIF/NIF y datos generales.
+- Cada empresa puede tener varias personas de contacto: gerencia, administracion y trabajadores, con cargo, telefono, WhatsApp y email.
+- Cada empresa muestra historial de trabajos realizados y notas enviadas con su estado.
