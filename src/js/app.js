@@ -26,6 +26,36 @@ const UNITS = [
 ];
 const UNIT_LABEL = Object.fromEntries(UNITS.map(u => [u.v, u.l]));
 
+function defaultFinishRules() {
+    return [
+        { key:'wallColor', label:'Color de paredes', roomTypes:['salon','dormitorio','pasillo','salon_cocina','general'] },
+        { key:'floorType', label:'Tipo de suelo', roomTypes:['salon','dormitorio','pasillo','cocina','bano','aseo','salon_cocina','general'] },
+        { key:'kitchenType', label:'Cocina', roomTypes:['cocina','salon_cocina'] },
+        { key:'countertop', label:'Encimera', roomTypes:['cocina','salon_cocina'] },
+        { key:'kitchenTiles', label:'Azulejos cocina', roomTypes:['cocina','salon_cocina'] },
+        { key:'bathroomTiles', label:'Azulejos baño', roomTypes:['bano','aseo'] },
+        { key:'bathroomFurniture', label:'Mueble de baño', roomTypes:['bano','aseo'] },
+        { key:'faucets', label:'Grifería', roomTypes:['bano','aseo','cocina','salon_cocina'] },
+        { key:'screen', label:'Mampara', roomTypes:['bano'] },
+        { key:'showerTray', label:'Plato de ducha', roomTypes:['bano'] },
+        { key:'showerFaucet', label:'Grifo de ducha', roomTypes:['bano'] },
+    ];
+}
+
+function defaultTaskUnitRules() {
+    return [
+        { id:'rule-floor', keyword:'suelo', unit:'m2' },
+        { id:'rule-tile', keyword:'alicat', unit:'m2' },
+        { id:'rule-paint', keyword:'pintura', unit:'m2' },
+        { id:'rule-baseboard', keyword:'rodapi', unit:'ml' },
+        { id:'rule-door', keyword:'puerta', unit:'ud' },
+        { id:'rule-window', keyword:'ventana', unit:'ud' },
+        { id:'rule-sink', keyword:'lavabo', unit:'ud' },
+        { id:'rule-toilet', keyword:'inodoro', unit:'ud' },
+        { id:'rule-faucet', keyword:'grifer', unit:'ud' },
+    ];
+}
+
 const ROOM_TEMPLATES = {
     salon:       { name:'Salón',          icon:'🛋️', trades:{ albanileria:['Demolición y retirada de escombros','Reparación de grietas y paredes','Preparación y saneado de suelo'], electricidad:['Canalización y tendido de cables','Cajas de mecanismos','Enchufes (bases)','Interruptores / Conmutadores','Puntos de luz','Revisión / conexión al cuadro'], yeseria:['Guarnecido de paredes','Enlucido fino de paredes','Falso techo (si aplica)','Remates y ángulos'], alicatado:['Nivelación y preparación de suelo','Colocación de suelo','Rodapié','Rejuntado'], carpinteria:['Marco de puerta','Puerta interior','Rodapié de madera (si aplica)'], pintura:['Masillado y lijado previo','Imprimación','Primera mano','Segunda mano / Acabado final'] }},
     cocina:      { name:'Cocina',         icon:'🍳', trades:{ albanileria:['Demolición y retirada','Reparación de paredes','Preparación de suelo'], fontaneria:['Toma de agua fría fregadero','Toma de agua caliente fregadero','Desagüe fregadero','Preinstalación lavavajillas','Preinstalación lavadora (si aplica)'], electricidad:['Circuito independiente cocina','Enchufes zona encimera / muebles','Puntos de luz','Extractor / Campana','Horno y vitrocerámica'], alicatado:['Colocación suelo','Rodapié','Alicatado pared / salpicadero','Rejuntado'], carpinteria:['Muebles bajos','Muebles altos','Encimera','Zócalos y ajustes finales'], pintura:['Masillado y lijado (zonas sin alicatar)','Imprimación','Acabado final'] }},
@@ -42,11 +72,13 @@ const ROOM_TEMPLATES = {
 // Task: { id, text, done, notes, qty, unit, price }
 // ================================================================
 
+const BASE_ROOM_TEMPLATE_KEYS = new Set(Object.keys(ROOM_TEMPLATES));
+const BASE_ROOM_TEMPLATE_SNAPSHOT = JSON.parse(JSON.stringify(ROOM_TEMPLATES));
 const PROJECT_COLORS = ['#e67e22','#1976D2','#27ae60','#8E24AA','#c0392b','#2c3e50','#00838F','#F57C00','#546E7A'];
 
 const state = {
     view: 'dashboard',
-    portalView: 'control',
+    portalView: 'director',
     currentRoom: null,
     currentTrade: null,
     // ── Project index ──
@@ -58,6 +90,8 @@ const state = {
     tradeInfo: {},
     companies: [],
     suppliers: [],
+    clients: [],
+    directorProfile: {},
     projectNotes: [],
     projectCalendar: [],
     sectionPhotos: {},
@@ -84,36 +118,74 @@ function slugify(s) {
 function emptyDocuments() { return { arquitecto:[], planos:[], permisos:[], presupuesto:[] }; }
 function emptyProjectBudget() {
     return {
-        clientBudget: '',
-        repercutedBudget: '',
-        targetMargin: '',
+        lines: [],
+        paymentPlan: [],
         approvedDate: '',
         notes: '',
+    };
+}
+function normalizeProjectBudget(budget) {
+    const source = budget || {};
+    const lines = Array.isArray(source.lines)
+        ? source.lines.map(line => ({
+            id: line?.id || uid(),
+            concept: line?.concept || '',
+            sell: line?.sell || '',
+            cost: line?.cost || '',
+            status: line?.status || 'pendiente',
+            notes: line?.notes || '',
+        }))
+        : [];
+    const paymentPlan = Array.isArray(source.paymentPlan)
+        ? source.paymentPlan.map(item => ({
+            id: item?.id || uid(),
+            label: item?.label || '',
+            date: item?.date || '',
+            amount: item?.amount || '',
+            status: item?.status || 'pendiente',
+            paidDate: item?.paidDate || '',
+            notes: item?.notes || '',
+        }))
+        : [];
+    if (!lines.length && (source.clientBudget || source.repercutedBudget)) {
+        lines.push({
+            id: uid(),
+            concept: 'Resumen inicial',
+            sell: source.clientBudget || '',
+            cost: source.repercutedBudget || '',
+            status: 'pendiente',
+            notes: source.targetMargin ? `Margen objetivo: ${source.targetMargin}%` : '',
+        });
+    }
+    return {
+        lines,
+        paymentPlan,
+        approvedDate: source.approvedDate || '',
+        notes: source.notes || '',
     };
 }
 function emptyCalendar() { return []; }
 function emptyProjectGalleries() {
     return { during: [], final: [], recreation3d: [] };
 }
-function defaultFinishSpecs() {
-    return [
-        { key:'wallColor', label:'Color de paredes', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'floorType', label:'Tipo de suelo', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'kitchenType', label:'Cocina', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'countertop', label:'Encimera', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'kitchenTiles', label:'Azulejos cocina', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'bathroomTiles', label:'Azulejos ba?o', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'bathroomFurniture', label:'Mueble de ba?o', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'faucets', label:'Grifer?a', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'screen', label:'Mampara', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'showerTray', label:'Plato de ducha', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-        { key:'showerFaucet', label:'Grifo de ducha', selection:'', status:'pendiente', providerUrl:'', photoUrl:'', techUrl:'', renderUrl:'', notes:'' },
-    ];
+function defaultFinishSpecs(rules = defaultFinishRules()) {
+    return rules.map(rule => ({
+        key: rule.key,
+        label: rule.label,
+        roomTypes: Array.isArray(rule.roomTypes) ? [...rule.roomTypes] : [],
+        selection:'',
+        status:'pendiente',
+        providerUrl:'',
+        photoUrl:'',
+        techUrl:'',
+        renderUrl:'',
+        notes:'',
+    }));
 }
-function normalizeFinishSpecs(items) {
+function normalizeFinishSpecs(items, rules = getFinishRules()) {
     const incoming = Array.isArray(items) ? items : [];
     const map = new Map(incoming.map(item => [item.key, item]));
-    return defaultFinishSpecs().map(base => ({ ...base, ...(map.get(base.key) || {}) }));
+    return defaultFinishSpecs(rules).map(base => ({ ...base, ...(map.get(base.key) || {}) }));
 }
 function emptyProjectData() {
     return {
@@ -124,8 +196,8 @@ function emptyProjectData() {
         sectionPhotos: {},
         projectGalleries: emptyProjectGalleries(),
         documents: emptyDocuments(),
-        projectBudget: emptyProjectBudget(),
-        projectFinishes: defaultFinishSpecs(),
+        projectBudget: normalizeProjectBudget(emptyProjectBudget()),
+        projectFinishes: defaultFinishSpecs(getFinishRules()),
         projectFurniture: [],
     };
 }
@@ -144,6 +216,7 @@ function normalizeProject(project) {
     const storageId = project.storageId || buildProjectStorageId(project);
     return {
         ...project,
+        clientId: project?.clientId || '',
         storageVersion: 2,
         storageId,
         folder: project.folder || `data/proyectos/${storageId}/`,
@@ -160,6 +233,8 @@ function projectKeys(projectId) {
 }
 const COMPANIES_KEY = 'obra_companies_v1';
 const SUPPLIERS_KEY = 'obra_suppliers_v1';
+const CLIENTS_KEY = 'obra_clients_v1';
+const DIRECTOR_PROFILE_KEY = 'obra_director_profile_v1';
 const USERS_KEY = 'obra_users_v1';
 const SESSION_KEY = 'obra_session_v1';
 const SETTINGS_KEY = 'obra_settings_v1';
@@ -220,6 +295,30 @@ function normalizeSupplier(supplier) {
         })) : [],
     };
 }
+function normalizeClient(client) {
+    return {
+        id: client?.id || uid(),
+        name: client?.name || '',
+        phone: client?.phone || '',
+        whatsapp: client?.whatsapp || '',
+        email: client?.email || '',
+        address: client?.address || '',
+        notes: client?.notes || '',
+        status: client?.status || 'activo',
+    };
+}
+function normalizeDirectorProfile(profile) {
+    return {
+        name: profile?.name || '',
+        studio: profile?.studio || '',
+        phone: profile?.phone || '',
+        whatsapp: profile?.whatsapp || '',
+        email: profile?.email || '',
+        website: profile?.website || '',
+        city: profile?.city || '',
+        notes: profile?.notes || '',
+    };
+}
 function getGlobalCompanies() {
     return readJSON(COMPANIES_KEY, []).map(normalizeCompany);
 }
@@ -238,6 +337,37 @@ function saveGlobalSuppliers() {
     saveEmergencyBackup();
     queueFolderPersist('suppliers');
 }
+function getGlobalClients() {
+    return readJSON(CLIENTS_KEY, []).map(normalizeClient);
+}
+function saveGlobalClients() {
+    state.clients = (state.clients || []).map(normalizeClient);
+    writeJSON(CLIENTS_KEY, state.clients);
+    saveEmergencyBackup();
+    queueFolderPersist('clients');
+}
+function getDirectorProfile() {
+    return normalizeDirectorProfile(readJSON(DIRECTOR_PROFILE_KEY, {}));
+}
+function saveDirectorProfile() {
+    state.directorProfile = normalizeDirectorProfile(state.directorProfile || {});
+    writeJSON(DIRECTOR_PROFILE_KEY, state.directorProfile);
+    saveEmergencyBackup();
+    queueFolderPersist('director');
+}
+function getClientById(clientId) {
+    return normalizeClient((state.clients || []).find(client => client.id === clientId));
+}
+function getProjectClient(project) {
+    if (!project?.clientId) return null;
+    const raw = (state.clients || []).find(client => client.id === project.clientId);
+    return raw ? normalizeClient(raw) : null;
+}
+function clientStatusMeta(status) {
+    if (status === 'prospecto') return { label:'Prospecto', cls:'pending' };
+    if (status === 'cerrado') return { label:'Cerrado', cls:'done' };
+    return { label:'Activo', cls:'approved' };
+}
 function getUsers() {
     return readJSON(USERS_KEY, []);
 }
@@ -245,14 +375,96 @@ function saveUsers(users) {
     writeJSON(USERS_KEY, users);
 }
 function getSettings() {
-    return readJSON(SETTINGS_KEY, {
+    return normalizeSettings(readJSON(SETTINGS_KEY, {
         appName: 'Gestion de Obra',
         primaryColor: '#e67e22',
-    });
+    }));
 }
 function saveSettings() {
-    writeJSON(SETTINGS_KEY, state.settings || getSettings());
+    state.settings = normalizeSettings(state.settings || getSettings());
+    writeJSON(SETTINGS_KEY, state.settings);
+    syncCustomRoomTemplates();
     applyAppSettings();
+}
+function normalizeSettings(settings) {
+    const source = settings || {};
+    const finishRules = Array.isArray(source.finishRules) ? source.finishRules : defaultFinishRules();
+    const taskUnitRules = Array.isArray(source.taskUnitRules) ? source.taskUnitRules : defaultTaskUnitRules();
+    const customRoomTypes = Array.isArray(source.customRoomTypes) ? source.customRoomTypes : [];
+    const roomTypeConfigs = Array.isArray(source.roomTypeConfigs) ? source.roomTypeConfigs : [];
+    return {
+        appName: source.appName || 'Gestion de Obra',
+        primaryColor: source.primaryColor || '#e67e22',
+        finishRules: finishRules.map(rule => ({
+            key: rule?.key || uid(),
+            label: rule?.label || 'Acabado',
+            roomTypes: Array.isArray(rule?.roomTypes) ? rule.roomTypes : [],
+        })),
+        taskUnitRules: taskUnitRules.map(rule => ({
+            id: rule?.id || uid(),
+            keyword: rule?.keyword || '',
+            unit: UNITS.some(item => item.v === rule?.unit) ? rule.unit : 'ud',
+        })),
+        customRoomTypes: customRoomTypes.map(room => ({
+            key: room?.key || slugify(room?.name || 'estancia'),
+            name: room?.name || 'Nueva estancia',
+            icon: room?.icon || 'ST',
+            baseType: BASE_ROOM_TEMPLATE_KEYS.has(room?.baseType) ? room.baseType : 'general',
+        })),
+        roomTypeConfigs: roomTypeConfigs.map(config => ({
+            key: config?.key || uid(),
+            trades: Object.fromEntries(Object.entries(config?.trades || {}).map(([tradeId, tasks]) => [
+                tradeId,
+                Array.isArray(tasks) ? tasks.map(task => String(task || '').trim()).filter(Boolean) : [],
+            ])),
+        })),
+    };
+}
+function getFinishRules() {
+    return normalizeSettings(state.settings || getSettings()).finishRules;
+}
+function getTaskUnitRules() {
+    return normalizeSettings(state.settings || getSettings()).taskUnitRules;
+}
+function cloneTrades(trades) {
+    return JSON.parse(JSON.stringify(trades || {}));
+}
+function buildRoomTypeConfigFromTemplate(roomKey) {
+    const template = ROOM_TEMPLATES[roomKey] || ROOM_TEMPLATES.general;
+    return {
+        key: roomKey,
+        trades: Object.fromEntries(Object.entries(template?.trades || {}).map(([tradeId, tasks]) => [tradeId, [...tasks]])),
+    };
+}
+function getRoomTypeConfig(settings, roomKey) {
+    const found = (settings.roomTypeConfigs || []).find(config => config.key === roomKey);
+    return found || buildRoomTypeConfigFromTemplate(roomKey);
+}
+function syncCustomRoomTemplates() {
+    Object.keys(ROOM_TEMPLATES).forEach(key => delete ROOM_TEMPLATES[key]);
+    Object.entries(BASE_ROOM_TEMPLATE_SNAPSHOT).forEach(([key, value]) => {
+        ROOM_TEMPLATES[key] = cloneTrades(value);
+    });
+    const settings = normalizeSettings(state.settings || getSettings());
+    (settings.customRoomTypes || []).forEach(room => {
+        const base = ROOM_TEMPLATES[room.baseType] || ROOM_TEMPLATES.general;
+        ROOM_TEMPLATES[room.key] = {
+            name: room.name,
+            icon: room.icon || 'ST',
+            trades: cloneTrades(base?.trades || {}),
+        };
+    });
+    (settings.roomTypeConfigs || []).forEach(config => {
+        if (!ROOM_TEMPLATES[config.key]) return;
+        ROOM_TEMPLATES[config.key].trades = cloneTrades(config.trades || {});
+    });
+}
+function getRoomTypeEntries() {
+    syncCustomRoomTemplates();
+    return Object.entries(ROOM_TEMPLATES);
+}
+function getRoomTypeOptions() {
+    return getRoomTypeEntries().map(([key, tpl]) => ({ key, ...tpl }));
 }
 function ensureAdminUser() {
     const users = getUsers();
@@ -270,13 +482,54 @@ function ensureAdminUser() {
     saveUsers([adminUser]);
     return [adminUser];
 }
+async function ensureDemoCompanyUsers() {
+    const users = getUsers();
+    const companySeeds = [
+        { username:'aqua', name:'Aqua Levante', companyId:'demo-company-1' },
+        { username:'volt', name:'Volt Studio', companyId:'demo-company-2' },
+        { username:'color', name:'Color Mediterraneo', companyId:'demo-company-3' },
+    ];
+    let changed = false;
+    for (const seed of companySeeds) {
+        if (users.some(user => user.username === seed.username)) continue;
+        users.push({
+            id: uid(),
+            username: seed.username,
+            name: seed.name,
+            role: 'company',
+            companyId: seed.companyId,
+            active: true,
+            mustChangePassword: false,
+            passwordHash: await sha256('empresa1234'),
+            createdAt: new Date().toISOString(),
+        });
+        changed = true;
+    }
+    if (changed) saveUsers(users);
+}
 function restoreSessionUser() {
     const session = readJSON(SESSION_KEY, null);
     const users = ensureAdminUser();
     state.currentUser = users.find(user => user.id === session?.userId && user.active !== false) || null;
 }
+function isCompanyUser() { return state.currentUser?.role === 'company'; }
+function currentUserCompanyId() { return state.currentUser?.companyId || ''; }
+function currentUserCompany() {
+    const companyId = currentUserCompanyId();
+    return companyId ? normalizeCompany((state.companies || []).find(company => company.id === companyId)) : null;
+}
+function whatsappUrl(phone, message) {
+    const cleanPhone = String(phone || '').replace(/[^\d+]/g, '');
+    return cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message || '')}` : '';
+}
+function openWhatsappShare(phone, message) {
+    const url = whatsappUrl(phone, message);
+    if (!url) { alert('Falta un telefono para enviar por WhatsApp.'); return; }
+    window.open(url, '_blank', 'noopener');
+}
 function applyAppSettings() {
     state.settings = getSettings();
+    syncCustomRoomTemplates();
     const root = document.documentElement;
     root.style.setProperty('--primary', state.settings.primaryColor || '#e67e22');
     root.style.setProperty('--primary-dark', '#d35400');
@@ -291,7 +544,7 @@ function logoutUser() {
     localStorage.removeItem(SESSION_KEY);
     state.currentUser = null;
     state.currentProjectId = null;
-    state.portalView = 'control';
+    state.portalView = 'director';
     state.view = 'projects';
     renderAll();
 }
@@ -312,7 +565,8 @@ async function loginUser() {
     }
     state.currentUser = user;
     writeJSON(SESSION_KEY, { userId: user.id });
-    state.portalView = 'control';
+    state.currentProjectId = null;
+    state.portalView = user.role === 'company' ? 'company' : 'director';
     state.view = user.mustChangePassword ? 'admin' : 'projects';
     renderAll();
 }
@@ -321,6 +575,7 @@ function initAccess() {
     state.settings = getSettings();
     applyAppSettings();
     restoreSessionUser();
+    if (state.currentUser) state.currentProjectId = null;
 }
 function renderLoginLayout() {
     return `
@@ -486,6 +741,8 @@ async function readFolderPayload() {
             currentProjectId: index.currentProjectId || null,
             companies: Array.isArray(index.companies) ? index.companies : [],
             suppliers: Array.isArray(index.suppliers) ? index.suppliers : [],
+            clients: Array.isArray(index.clients) ? index.clients : [],
+            directorProfile: normalizeDirectorProfile(index.directorProfile || {}),
         },
         projectData,
     };
@@ -606,9 +863,13 @@ function buildBackupPayload(includeBlobs = true) {
             currentProjectId: state.currentProjectId,
             companies: state.companies || [],
             suppliers: state.suppliers || [],
+            clients: state.clients || [],
+            directorProfile: normalizeDirectorProfile(state.directorProfile || {}),
         },
         companies: state.companies || [],
         suppliers: state.suppliers || [],
+        clients: state.clients || [],
+        directorProfile: normalizeDirectorProfile(state.directorProfile || {}),
         projectData: projects.map(project => {
             const keys = projectKeys(project.id);
             const docsStore = readJSON(keys.docs, { entries: emptyDocuments(), blobs: {} });
@@ -622,8 +883,8 @@ function buildBackupPayload(includeBlobs = true) {
                     projectCalendar: [],
                     sectionPhotos: {},
                     projectGalleries: emptyProjectGalleries(),
-                    projectBudget: emptyProjectBudget(),
-                    projectFinishes: defaultFinishSpecs(),
+                    projectBudget: normalizeProjectBudget(emptyProjectBudget()),
+                    projectFinishes: defaultFinishSpecs(getFinishRules()),
                     projectFurniture: [],
                 }),
                 docs: {
@@ -643,6 +904,12 @@ function applyBackupPayload(payload) {
     }
     const projects = payload.index.projects.map(normalizeProject);
     state.projects = projects;
+    state.clients = Array.isArray(payload.clients)
+        ? payload.clients.map(normalizeClient)
+        : Array.isArray(payload.index?.clients)
+            ? payload.index.clients.map(normalizeClient)
+            : [];
+    state.directorProfile = normalizeDirectorProfile(payload.directorProfile || payload.index?.directorProfile || {});
     Object.keys(localStorage).forEach(key => {
         if (key.startsWith('obra_project_')) localStorage.removeItem(key);
     });
@@ -660,8 +927,8 @@ function applyBackupPayload(payload) {
             projectCalendar: entry.core?.projectCalendar || [],
             sectionPhotos: entry.core?.sectionPhotos || {},
             projectGalleries: entry.core?.projectGalleries || emptyProjectGalleries(),
-            projectBudget: entry.core?.projectBudget || emptyProjectBudget(),
-            projectFinishes: entry.core?.projectFinishes || defaultFinishSpecs(),
+            projectBudget: normalizeProjectBudget(entry.core?.projectBudget || emptyProjectBudget()),
+            projectFinishes: entry.core?.projectFinishes || defaultFinishSpecs(getFinishRules()),
             projectFurniture: entry.core?.projectFurniture || [],
         });
         writeJSON(keys.docs, {
@@ -675,6 +942,8 @@ function applyBackupPayload(payload) {
     writeJSON('obra_index_v2', {
         projects,
         currentProjectId: payload.index.currentProjectId || null,
+        clients: state.clients,
+        directorProfile: state.directorProfile,
     });
     writeJSON(COMPANIES_KEY, Array.isArray(payload.companies)
         ? payload.companies
@@ -686,6 +955,8 @@ function applyBackupPayload(payload) {
         : Array.isArray(payload.index?.suppliers)
             ? payload.index.suppliers
             : []);
+    writeJSON(CLIENTS_KEY, state.clients);
+    writeJSON(DIRECTOR_PROFILE_KEY, state.directorProfile);
 }
 function saveEmergencyBackup() {
     try {
@@ -787,7 +1058,7 @@ function getProjectData(projectId) {
         sectionPhotos: core?.sectionPhotos || {},
         projectGalleries: core?.projectGalleries || emptyProjectGalleries(),
         documents: docsStore?.entries || emptyDocuments(),
-        projectBudget: core?.projectBudget || emptyProjectBudget(),
+        projectBudget: normalizeProjectBudget(core?.projectBudget || emptyProjectBudget()),
         projectFinishes: normalizeFinishSpecs(core?.projectFinishes),
         projectFurniture: Array.isArray(core?.projectFurniture) ? core.projectFurniture : [],
     };
@@ -819,7 +1090,7 @@ function migrateProjectStorageIfNeeded(projects) {
             projectCalendar: legacyData.projectCalendar || [],
             sectionPhotos: legacyData.sectionPhotos || {},
             projectGalleries: legacyData.projectGalleries || emptyProjectGalleries(),
-            projectBudget: legacyData.projectBudget || emptyProjectBudget(),
+        projectBudget: normalizeProjectBudget(legacyData.projectBudget || emptyProjectBudget()),
             projectFinishes: normalizeFinishSpecs(legacyData.projectFinishes),
             projectFurniture: legacyData.projectFurniture || [],
         };
@@ -857,6 +1128,35 @@ function formatEur(n) {
     if (n === null || n === undefined || n === '' || isNaN(n)) return '—';
     return Number(n).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
+function parseMoney(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const normalized = String(value).replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, '');
+    if (!normalized) return null;
+    const num = parseFloat(normalized);
+    return Number.isFinite(num) ? num : null;
+}
+function saveProjectData(projectId, data) {
+    const keys = projectKeys(projectId);
+    writeJSON(keys.core, {
+        rooms: data.rooms || [],
+        tradeInfo: data.tradeInfo || {},
+        projectNotes: data.projectNotes || [],
+        projectCalendar: data.projectCalendar || [],
+        sectionPhotos: data.sectionPhotos || {},
+        projectGalleries: data.projectGalleries || emptyProjectGalleries(),
+        projectBudget: data.projectBudget || emptyProjectBudget(),
+        projectFinishes: data.projectFinishes || [],
+        projectFurniture: data.projectFurniture || [],
+    });
+    const docsStore = readJSON(keys.docs, { entries: emptyDocuments(), blobs: {} });
+    docsStore.entries = data.documents || emptyDocuments();
+    writeJSON(keys.docs, docsStore);
+}
+function suggestTaskUnit(taskText) {
+    const text = String(taskText || '').toLowerCase();
+    const match = getTaskUnitRules().find(rule => text.includes(String(rule.keyword || '').toLowerCase()) && rule.keyword);
+    return match?.unit || 'ud';
+}
 function formatShortDate(dateStr) {
     if (!dateStr) return '';
     const d = new Date(dateStr + 'T00:00:00');
@@ -882,6 +1182,8 @@ function saveIndex() {
     writeJSON('obra_index_v2', {
         projects: state.projects,
         currentProjectId: state.currentProjectId,
+        clients: state.clients || [],
+        directorProfile: normalizeDirectorProfile(state.directorProfile || {}),
     });
     saveEmergencyBackup();
     queueFolderPersist('index');
@@ -919,15 +1221,15 @@ function loadProject(projectId) {
         state.sectionPhotos = d.sectionPhotos;
         state.projectGalleries = d.projectGalleries || emptyProjectGalleries();
         state.documents     = d.documents;
-        state.projectBudget = d.projectBudget || emptyProjectBudget();
+        state.projectBudget = normalizeProjectBudget(d.projectBudget || emptyProjectBudget());
         state.projectFinishes = normalizeFinishSpecs(d.projectFinishes);
         state.projectFurniture = d.projectFurniture || [];
     } catch(e) {
         state.rooms=[]; state.tradeInfo={};
         state.projectNotes=[]; state.projectCalendar=[]; state.sectionPhotos={}; state.projectGalleries=emptyProjectGalleries();
         state.documents=emptyDocuments();
-        state.projectBudget=emptyProjectBudget();
-        state.projectFinishes=defaultFinishSpecs(); state.projectFurniture=[];
+        state.projectBudget=normalizeProjectBudget(emptyProjectBudget());
+        state.projectFinishes=defaultFinishSpecs(getFinishRules()); state.projectFurniture=[];
     }
     state.collapsed = {};
     state.view = 'dashboard';
@@ -938,6 +1240,8 @@ function loadProject(projectId) {
 function initState() {
     state.companies = getGlobalCompanies();
     state.suppliers = getGlobalSuppliers();
+    state.clients = getGlobalClients();
+    state.directorProfile = getDirectorProfile();
     // Load index
     try {
         const idx = readJSON('obra_index_v2', null) || readJSON('obra_index_v1', {});
@@ -946,12 +1250,12 @@ function initState() {
             migrateProjectStorageIfNeeded(state.projects);
             migrateLegacyCompaniesToGlobal(state.projects);
             saveIndex();
-            if (idx.currentProjectId && state.projects.find(p => p.id === idx.currentProjectId)) {
+            if (!state.currentUser && idx.currentProjectId && state.projects.find(p => p.id === idx.currentProjectId)) {
                 loadProject(idx.currentProjectId);
                 return;
             }
             state.view = 'projects';
-            state.portalView = 'control';
+            state.portalView = 'director';
             return;
         }
     } catch(e) {}
@@ -986,13 +1290,13 @@ function initState() {
         state.suppliers = getGlobalSuppliers();
         const idx = readJSON('obra_index_v2', null);
         state.projects = Array.isArray(idx?.projects) ? idx.projects.map(normalizeProject) : [];
-        if (idx?.currentProjectId && state.projects.find(p => p.id === idx.currentProjectId)) {
+        if (!state.currentUser && idx?.currentProjectId && state.projects.find(p => p.id === idx.currentProjectId)) {
             loadProject(idx.currentProjectId);
             return;
         }
     }
     state.view = 'projects';
-    state.portalView = 'control';
+    state.portalView = 'director';
 }
 
 // ================================================================
@@ -1022,6 +1326,24 @@ function removeDoc(docId) {
     writeJSON(getActiveProjectKeys().docs, store);
 }
 function getDoc(docId) { return _getDocStore().blobs[docId] || null; }
+function getDocStoreForProject(projectId) {
+    const keys = projectKeys(projectId);
+    return readJSON(keys.docs, { entries: emptyDocuments(), blobs: {} });
+}
+function storeDocForProject(projectId, docId, base64) {
+    const keys = projectKeys(projectId);
+    const store = getDocStoreForProject(projectId);
+    store.blobs[docId] = base64;
+    try { writeJSON(keys.docs, store); return true; }
+    catch(e) { alert('Sin espacio para guardar el documento. Prueba con un archivo mÃ¡s pequeÃ±o.'); return false; }
+}
+function removeDocFromProject(projectId, docId) {
+    const keys = projectKeys(projectId);
+    const store = getDocStoreForProject(projectId);
+    delete store.blobs[docId];
+    writeJSON(keys.docs, store);
+}
+function getDocFromProject(projectId, docId) { return getDocStoreForProject(projectId).blobs[docId] || null; }
 
 function dataURLToBlob(dataURL) {
     const arr = dataURL.split(','), mime = arr[0].match(/:(.*?);/)[1];
@@ -1105,6 +1427,12 @@ function viewDocument(docId) {
     const url = URL.createObjectURL(dataURLToBlob(data));
     window.open(url, '_blank');
 }
+function viewDocumentFromProject(projectId, docId) {
+    const data = projectId === state.currentProjectId ? getDoc(docId) : getDocFromProject(projectId, docId);
+    if (!data) return;
+    const url = URL.createObjectURL(dataURLToBlob(data));
+    window.open(url, '_blank');
+}
 function saveDocField(catKey, entryId, field, value) {
     const entry = (state.documents[catKey] || []).find(e => e.id === entryId);
     if (entry) { entry[field] = value; saveState(); }
@@ -1158,6 +1486,71 @@ function saveTradeDocumentField(tid, entryId, field, value) {
     const entry = (state.tradeInfo[tid].tradeDocuments || []).find(item => item.id === entryId);
     if (entry) { entry[field] = value; saveState(); }
 }
+function processTradeDocumentFilesInProject(projectId, tid, fileList) {
+    if (projectId === state.currentProjectId) {
+        processTradeDocumentFiles(tid, fileList);
+        return;
+    }
+    const data = getProjectData(projectId);
+    if (!data.tradeInfo[tid]) data.tradeInfo[tid] = getTradeInfo(tid);
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+    let pending = files.length;
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const docId = uid();
+            if (storeDocForProject(projectId, docId, ev.target.result)) {
+                if (!Array.isArray(data.tradeInfo[tid].tradeDocuments)) data.tradeInfo[tid].tradeDocuments = [];
+                data.tradeInfo[tid].tradeDocuments.push({
+                    id: uid(),
+                    docId,
+                    notes: '',
+                    name: file.name.replace(/\.[^.]+$/, ''),
+                    fileType: file.type,
+                    date: new Date().toISOString(),
+                });
+            }
+            pending--;
+            if (pending === 0) saveProjectData(projectId, data);
+        };
+        reader.readAsDataURL(file);
+    });
+}
+function uploadTradeDocumentForProject(projectId, tid) {
+    const input = document.createElement('input');
+    input.multiple = true;
+    input.type = 'file';
+    input.accept = 'image/*,application/pdf,.doc,.docx,.xls,.xlsx';
+    input.onchange = e => processTradeDocumentFilesInProject(projectId, tid, e.target.files);
+    input.click();
+}
+function saveTradeDocumentFieldInProject(projectId, tid, entryId, field, value) {
+    if (projectId === state.currentProjectId) {
+        saveTradeDocumentField(tid, entryId, field, value);
+        return;
+    }
+    const data = getProjectData(projectId);
+    if (!data.tradeInfo[tid]) data.tradeInfo[tid] = getTradeInfo(tid);
+    const entry = (data.tradeInfo[tid].tradeDocuments || []).find(item => item.id === entryId);
+    if (!entry) return;
+    entry[field] = value;
+    saveProjectData(projectId, data);
+}
+function deleteTradeDocumentForProject(projectId, tid, entryId) {
+    if (!confirm('Eliminar este documento del oficio?')) return;
+    if (projectId === state.currentProjectId) {
+        deleteTradeDocument(tid, entryId);
+        return;
+    }
+    const data = getProjectData(projectId);
+    if (!data.tradeInfo[tid]) data.tradeInfo[tid] = getTradeInfo(tid);
+    const arr = data.tradeInfo[tid].tradeDocuments || [];
+    const entry = arr.find(item => item.id === entryId);
+    if (entry) removeDocFromProject(projectId, entry.docId);
+    data.tradeInfo[tid].tradeDocuments = arr.filter(item => item.id !== entryId);
+    saveProjectData(projectId, data);
+}
 
 // ================================================================
 // PHOTO STORAGE  (separate localStorage key to avoid bloating state)
@@ -1179,6 +1572,24 @@ function removePhoto(photoId) {
     writeJSON(getActiveProjectKeys().photos, store);
 }
 function getPhoto(photoId) { return _getPhotoStore().blobs[photoId] || null; }
+function getPhotoStoreForProject(projectId) {
+    const keys = projectKeys(projectId);
+    return readJSON(keys.photos, { blobs: {} });
+}
+function storePhotoForProject(projectId, photoId, dataUrl) {
+    const keys = projectKeys(projectId);
+    const store = getPhotoStoreForProject(projectId);
+    store.blobs[photoId] = dataUrl;
+    try { writeJSON(keys.photos, store); return true; }
+    catch(e) { alert('Sin espacio para guardar la foto. Prueba con una imagen mÃ¡s pequeÃ±a.'); return false; }
+}
+function removePhotoFromProject(projectId, photoId) {
+    const keys = projectKeys(projectId);
+    const store = getPhotoStoreForProject(projectId);
+    delete store.blobs[photoId];
+    writeJSON(keys.photos, store);
+}
+function getPhotoFromProject(projectId, photoId) { return getPhotoStoreForProject(projectId).blobs[photoId] || null; }
 
 function resizeAndUpload(callback) {
     const input = document.createElement('input');
@@ -1306,10 +1717,42 @@ function deleteCertPhoto(roomId, taskId) {
     task.certPhotoId = null; task.certStatus = null; task.certComment = ''; task.certDate = null;
     saveState(); renderAll();
 }
+function uploadCertPhotoInProject(projectId, roomId, taskId) {
+    if (projectId === state.currentProjectId) {
+        uploadCertPhoto(roomId, taskId);
+        return;
+    }
+    resizeAndUpload(dataUrl => {
+        const data = getProjectData(projectId);
+        const room = (data.rooms || []).find(entry => entry.id === roomId);
+        const task = Object.values(room?.trades || {}).flat().find(entry => entry.id === taskId);
+        if (!task) return;
+        const photoId = uid();
+        if (!storePhotoForProject(projectId, photoId, dataUrl)) return;
+        if (task.certPhotoId) removePhotoFromProject(projectId, task.certPhotoId);
+        task.certPhotoId = photoId;
+        task.certStatus = 'pending';
+        task.certComment = task.certComment || '';
+        task.certDate = new Date().toISOString();
+        saveProjectData(projectId, data);
+    });
+}
+function toggleTaskDoneInProject(projectId, roomId, taskId) {
+    if (projectId === state.currentProjectId) {
+        toggleTask(roomId, taskId);
+        return;
+    }
+    const data = getProjectData(projectId);
+    const room = (data.rooms || []).find(entry => entry.id === roomId);
+    const task = Object.values(room?.trades || {}).flat().find(entry => entry.id === taskId);
+    if (!task) return;
+    task.done = !task.done;
+    saveProjectData(projectId, data);
+}
 function initRoomTrades(type) {
     const trades = {};
     Object.entries(ROOM_TEMPLATES[type].trades).forEach(([tid, tasks]) => {
-        trades[tid] = tasks.map(text => ({ id: uid(), text, done: false, notes: '', qty: '', unit: 'ud', price: '' }));
+        trades[tid] = tasks.map(text => ({ id: uid(), text, done: false, notes: '', qty: '', unit: suggestTaskUnit(text), price: '' }));
     });
     return trades;
 }
@@ -1363,6 +1806,7 @@ function openProjectModal(projectId) {
     document.getElementById('projectModalTitle').textContent = p ? 'Editar proyecto' : 'Nuevo proyecto';
     document.getElementById('projName').value    = p ? p.name        : '';
     document.getElementById('projAddress').value = p ? p.address     : '';
+    document.getElementById('projClientId').innerHTML = `<option value="">Sin cliente asignado</option>${(state.clients || []).map(client => `<option value="${client.id}" ${p?.clientId===client.id?'selected':''}>${esc(client.name)}</option>`).join('')}`;
     document.getElementById('projLocationNotes').value = p ? (p.locationNotes || '') : '';
     document.getElementById('projDesc').value    = p ? p.description : '';
     document.getElementById('projDeleteBtn').style.display = p ? 'inline-flex' : 'none';
@@ -1389,6 +1833,7 @@ function confirmProject() {
     const data = {
         name, color: _selProjColor,
         address:     document.getElementById('projAddress').value.trim(),
+        clientId:    document.getElementById('projClientId').value || '',
         locationNotes: document.getElementById('projLocationNotes').value.trim(),
         description: document.getElementById('projDesc').value.trim(),
         coverImage: _projectCoverImage,
@@ -1420,8 +1865,8 @@ function deleteProjectFromModal() {
         state.rooms=[]; state.tradeInfo={};
         state.projectNotes=[]; state.projectCalendar=[]; state.sectionPhotos={}; state.projectGalleries=emptyProjectGalleries();
         state.documents=emptyDocuments();
-        state.projectBudget=emptyProjectBudget();
-        state.projectFinishes=defaultFinishSpecs(); state.projectFurniture=[];
+        state.projectBudget=normalizeProjectBudget(emptyProjectBudget());
+        state.projectFinishes=defaultFinishSpecs(getFinishRules()); state.projectFurniture=[];
     }
     saveIndex();
     closeProjectModal();
@@ -1439,8 +1884,8 @@ function exitToProjects() {
     state.rooms=[]; state.tradeInfo={};
     state.projectNotes=[]; state.projectCalendar=[]; state.sectionPhotos={}; state.projectGalleries=emptyProjectGalleries(); state.collapsed={};
     state.documents=emptyDocuments();
-    state.projectBudget=emptyProjectBudget();
-    state.projectFinishes=defaultFinishSpecs(); state.projectFurniture=[];
+    state.projectBudget=normalizeProjectBudget(emptyProjectBudget());
+    state.projectFinishes=defaultFinishSpecs(getFinishRules()); state.projectFurniture=[];
     state.view = 'projects';
     state.portalView = 'projects';
     saveIndex();
@@ -1489,11 +1934,14 @@ function getMaterialsData() {
     const byTrade = {};
     Object.keys(TRADES).forEach(tid => { byTrade[tid] = { items:[], total:0, done:0, pending:0 }; });
 
-    state.rooms.forEach(room => {
-        const tpl = ROOM_TEMPLATES[room.type];
-        Object.entries(room.trades).forEach(([tid, tasks]) => {
+    (state.rooms || []).forEach(room => {
+        if (!room || typeof room !== 'object') return;
+        const tpl = ROOM_TEMPLATES[room.type] || { name: room.type || 'Estancia' };
+        const trades = room.trades && typeof room.trades === 'object' ? room.trades : {};
+        Object.entries(trades).forEach(([tid, tasks]) => {
             if (!byTrade[tid]) byTrade[tid] = { items:[], total:0, done:0, pending:0 };
-            tasks.forEach(task => {
+            (Array.isArray(tasks) ? tasks : []).forEach(task => {
+                if (!task || typeof task !== 'object') return;
                 const cost = taskCost(task);
                 const c    = cost ?? 0;
                 if (cost === null) noCostCount++;
@@ -1506,6 +1954,47 @@ function getMaterialsData() {
         });
     });
     return { totalCost, doneCost, pendingCost, noCostCount, byTrade };
+}
+
+function renderMaterialsPanel() {
+    try {
+        const data = getMaterialsData();
+        const tradeBlocks = Object.entries(data.byTrade || {})
+            .filter(([, group]) => group && Array.isArray(group.items) && group.items.length)
+            .map(([tid, group]) => {
+                const trade = TRADES[tid] || { name: tid, icon:'MAT' };
+                return `<div class="admin-card">
+                    <div class="dash-header" style="margin-bottom:10px">
+                        <div><div class="page-title" style="font-size:18px">${trade.icon} ${trade.name}</div><div class="page-sub">${group.items.length} linea${group.items.length !== 1 ? 's' : ''}</div></div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px">
+                        ${group.items.slice(0, 12).map(({ room, task, cost }) => `<div class="doc-item">
+                            <div style="flex:1;min-width:0">
+                                <div style="font-weight:600">${esc(task?.text || 'Tarea')}</div>
+                                <div class="company-job-meta">${esc(room?.name || 'Sin estancia')}</div>
+                            </div>
+                            <div style="min-width:100px;text-align:right">${cost !== null ? formatEur(cost) : 'Sin precio'}</div>
+                        </div>`).join('')}
+                        ${group.items.length > 12 ? `<div class="doc-empty">Hay m?s lineas en este oficio. Esto es un resumen.</div>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        return `<div class="dash-header">
+            <div><div class="page-title">Materiales</div><div class="page-sub">Resumen por oficio. El control economico detallado est? en Documentos > Presupuestos.</div></div>
+        </div>
+        <div class="summary-cards">
+            <div class="summary-card s-total"><div class="sc-label">Coste total</div><div class="sc-value">${formatEur(data.totalCost)}</div><div class="sc-pct">Importe con precio</div></div>
+            <div class="summary-card s-done"><div class="sc-label">Completado</div><div class="sc-value">${formatEur(data.doneCost)}</div><div class="sc-pct">Tareas hechas</div></div>
+            <div class="summary-card s-pending"><div class="sc-label">Pendiente</div><div class="sc-value">${formatEur(data.pendingCost)}</div><div class="sc-pct">Pendiente de ejecutar</div></div>
+            <div class="summary-card"><div class="sc-label">Sin precio</div><div class="sc-value">${data.noCostCount}</div><div class="sc-pct">Lineas por completar</div></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+            ${tradeBlocks || `<div class="empty-state"><div class="empty-icon">MAT</div><h2>Sin materiales todav?a</h2><p>A?ade cantidades y precios en las tareas para ver el resumen aqu?.</p></div>`}
+        </div>`;
+    } catch (err) {
+        console.error(err);
+        return `<div class="empty-state"><div class="empty-icon">MAT</div><h2>Materiales no disponibles</h2><p>He evitado que esta pesta?a se caiga. Revisa cantidades y precios de las tareas de esta obra.</p></div>`;
+    }
 }
 
 // ================================================================
@@ -1599,6 +2088,19 @@ function saveTaskField(roomId, taskId, field, value) {
     if (btn) btn.classList.toggle('has-data', !!(task.desc || task.notes || task.qty || task.price || task.startDate || task.dueDate));
     // Update cost total display in detail panel
     previewCost(taskId);
+}
+function updateTaskFieldInProject(projectId, roomId, taskId, field, value) {
+    if (projectId === state.currentProjectId) {
+        saveTaskField(roomId, taskId, field, value);
+        return;
+    }
+    const data = getProjectData(projectId);
+    const room = (data.rooms || []).find(entry => entry.id === roomId);
+    if (!room) return;
+    const task = Object.values(room.trades || {}).flat().find(entry => entry.id === taskId);
+    if (!task) return;
+    task[field] = value;
+    saveProjectData(projectId, data);
 }
 
 function toggleDetail(taskId) {
@@ -1701,6 +2203,76 @@ function updateTradeInfo(tid, field, val) {
     saveState();
     syncTradeScheduleUI(tid);
 }
+function updateTradeInfoInProject(projectId, tid, field, val) {
+    if (projectId === state.currentProjectId) {
+        updateTradeInfo(tid, field, val);
+        return;
+    }
+    const data = getProjectData(projectId);
+    if (!data.tradeInfo[tid]) data.tradeInfo[tid] = getTradeInfo(tid);
+    data.tradeInfo[tid][field] = val;
+    const info = data.tradeInfo[tid];
+    if (field === 'startDate') {
+        if (info.startDate && info.durationDays) info.endDate = calcEndDateFromDuration(info.startDate, info.durationDays);
+        else if (info.startDate && info.endDate) info.durationDays = calcDurationDays(info.startDate, info.endDate);
+    } else if (field === 'endDate') {
+        info.durationDays = calcDurationDays(info.startDate, info.endDate);
+    } else if (field === 'durationDays') {
+        info.endDate = calcEndDateFromDuration(info.startDate, info.durationDays);
+    }
+    saveProjectData(projectId, data);
+}
+function sendTradeWhatsapp(tid) {
+    const info = getTradeInfo(tid);
+    const company = info.companyId ? normalizeCompany((state.companies || []).find(c => c.id === info.companyId)) : null;
+    const roomsWithTrade = (state.rooms || []).filter(room => room.trades?.[tid]);
+    const lines = roomsWithTrade.flatMap(room => (room.trades[tid] || []).map(task => `- ${room.name}: ${task.text}${task.dueDate ? ` (${task.dueDate})` : ''}`));
+    const message = [
+        `Trabajos asignados - ${state.projects.find(p => p.id === state.currentProjectId)?.name || 'Obra'}`,
+        info.company ? `Empresa: ${info.company}` : '',
+        lines.length ? lines.join('\n') : 'Sin tareas asignadas.',
+        'Accede a tu usuario para indicar fechas, notas y fotos de certificacion.'
+    ].filter(Boolean).join('\n\n');
+    openWhatsappShare(company?.phone || info.phone, message);
+}
+function sendTradeWhatsappForProject(projectId, tid) {
+    if (projectId === state.currentProjectId) {
+        sendTradeWhatsapp(tid);
+        return;
+    }
+    const project = (state.projects || []).find(item => item.id === projectId);
+    const data = getProjectData(projectId);
+    const info = data.tradeInfo?.[tid] || getTradeInfo(tid);
+    const company = info.companyId ? normalizeCompany((state.companies || []).find(c => c.id === info.companyId)) : null;
+    const roomsWithTrade = (data.rooms || []).filter(room => room.trades?.[tid]);
+    const lines = roomsWithTrade.flatMap(room => (room.trades[tid] || []).map(task => `- ${room.name}: ${task.text}${task.dueDate ? ` (${task.dueDate})` : ''}`));
+    const message = [
+        `Trabajos asignados - ${project?.name || 'Obra'}`,
+        info.company ? `Empresa: ${info.company}` : '',
+        lines.length ? lines.join('\n') : 'Sin tareas asignadas.',
+        'Accede a tu usuario para indicar fechas, notas y fotos de certificacion.'
+    ].filter(Boolean).join('\n\n');
+    openWhatsappShare(company?.phone || info.phone, message);
+}
+function sendTaskWhatsapp(projectId, roomId, tradeId, taskId) {
+    const project = (state.projects || []).find(item => item.id === projectId);
+    const data = projectId === state.currentProjectId ? { rooms: state.rooms, tradeInfo: state.tradeInfo } : getProjectData(projectId);
+    const room = (data.rooms || []).find(entry => entry.id === roomId);
+    const task = Object.values(room?.trades || {}).flat().find(entry => entry.id === taskId);
+    const info = data.tradeInfo?.[tradeId] || getTradeInfo(tradeId);
+    if (!room || !task) return;
+    const phone = task.workerPhone || info.phone;
+    const message = [
+        `Trabajo asignado - ${project?.name || 'Obra'}`,
+        `Oficio: ${TRADES[tradeId]?.name || tradeId}`,
+        `Estancia: ${room.name}`,
+        `Tarea: ${task.text}`,
+        task.desc ? `Info: ${task.desc}` : '',
+        task.startDate || task.dueDate ? `Fechas: ${task.startDate || '-'} -> ${task.dueDate || '-'}` : '',
+        'Cuando lo hagas, deja nota y sube una foto para certificarlo.'
+    ].filter(Boolean).join('\n');
+    openWhatsappShare(phone, message);
+}
 function assignCompanyToTrade(tid, companyId) {
     if (!state.tradeInfo[tid]) state.tradeInfo[tid] = getTradeInfo(tid);
     state.tradeInfo[tid].companyId = companyId;
@@ -1745,6 +2317,7 @@ var _cmpPeople = [];
 var _cmpHistory = [];
 var _editSupplierId = null;
 var _supSelCategories = new Set();
+var _editClientId = null;
 var _editCollectionItem = null;
 
 function renderCompanyPeopleEditor() {
@@ -1841,21 +2414,26 @@ function getCompanyJobs(companyId) {
                 tradeInfo: state.tradeInfo,
             }
             : getProjectData(project.id);
-        const relatedTradeIds = Object.entries(data.tradeInfo || {})
-            .filter(([, info]) => info?.companyId === companyId)
-            .map(([tradeId]) => tradeId);
-        if (!relatedTradeIds.length) return;
+        const relatedTrades = Object.entries(data.tradeInfo || {})
+            .filter(([, info]) => info?.companyId === companyId);
+        if (!relatedTrades.length) return;
         (data.rooms || []).forEach(room => {
-            relatedTradeIds.forEach(tradeId => {
+            relatedTrades.forEach(([tradeId, info]) => {
                 const tasks = room.trades?.[tradeId] || [];
                 tasks.forEach(task => {
                     jobs.push({
                         id: task.id,
                         projectId: project.id,
                         projectName: project.name,
+                        projectAddress: project.address || '',
+                        tradeId,
+                        roomId: room.id,
                         roomName: room.name,
                         tradeName: TRADES[tradeId]?.name || tradeId,
                         taskText: task.text,
+                        task,
+                        tradeInfo: info || getTradeInfo(tradeId),
+                        tradeDocuments: info?.tradeDocuments || [],
                         status: companyStatusLabel(task),
                     });
                 });
@@ -2000,6 +2578,61 @@ function deleteSupplierFromModal() {
     saveCurrentProject();
     saveGlobalSuppliers();
     closeSupplierModal();
+    renderAll();
+}
+
+function openClientModal(clientId) {
+    _editClientId = clientId || null;
+    const client = clientId ? normalizeClient(state.clients.find(item => item.id === clientId)) : null;
+    document.getElementById('clientModalTitle').textContent = client ? 'Editar cliente' : 'Nuevo cliente';
+    document.getElementById('cliName').value = client ? client.name : '';
+    document.getElementById('cliPhone').value = client ? client.phone : '';
+    document.getElementById('cliWhatsapp').value = client ? client.whatsapp : '';
+    document.getElementById('cliEmail').value = client ? client.email : '';
+    document.getElementById('cliStatus').value = client ? client.status : 'activo';
+    document.getElementById('cliAddress').value = client ? client.address : '';
+    document.getElementById('cliNotes').value = client ? client.notes : '';
+    document.getElementById('cliDeleteBtn').style.display = client ? 'inline-flex' : 'none';
+    document.getElementById('clientModal').classList.add('open');
+    setTimeout(() => document.getElementById('cliName').focus(), 100);
+}
+function closeClientModal(e) {
+    if (e && e.target !== document.getElementById('clientModal')) return;
+    document.getElementById('clientModal').classList.remove('open');
+}
+function confirmClient() {
+    const name = document.getElementById('cliName').value.trim();
+    if (!name) { document.getElementById('cliName').focus(); return; }
+    const data = normalizeClient({
+        id: _editClientId || uid(),
+        name,
+        phone: document.getElementById('cliPhone').value.trim(),
+        whatsapp: document.getElementById('cliWhatsapp').value.trim(),
+        email: document.getElementById('cliEmail').value.trim(),
+        status: document.getElementById('cliStatus').value || 'activo',
+        address: document.getElementById('cliAddress').value.trim(),
+        notes: document.getElementById('cliNotes').value.trim(),
+    });
+    if (_editClientId) {
+        const idx = state.clients.findIndex(item => item.id === _editClientId);
+        if (idx >= 0) state.clients[idx] = { ...state.clients[idx], ...data };
+    } else {
+        state.clients.push(data);
+    }
+    saveGlobalClients();
+    saveIndex();
+    closeClientModal();
+    renderAll();
+}
+function deleteClientFromModal() {
+    if (!_editClientId) return;
+    const client = state.clients.find(item => item.id === _editClientId);
+    if (!client || !confirm(`¿Eliminar "${client.name}"?`)) return;
+    state.clients = state.clients.filter(item => item.id !== _editClientId);
+    state.projects = state.projects.map(project => project.clientId === _editClientId ? { ...project, clientId:'' } : project);
+    saveGlobalClients();
+    saveIndex();
+    closeClientModal();
     renderAll();
 }
 
@@ -2197,13 +2830,16 @@ function navigate(view, id) {
     if (c) c.scrollTop = 0;
 }
 function switchPortalView(view) {
-    state.portalView = view === 'projects'
-        ? 'projects'
-        : view === 'companies'
-            ? 'companies'
-            : view === 'suppliers'
-                ? 'suppliers'
-                : 'control';
+    if (isCompanyUser()) {
+        state.portalView = 'company';
+        state.currentProjectId = null;
+        state.view = 'projects';
+        renderAll();
+        return;
+    }
+    state.portalView = ['director', 'clients', 'projects', 'companies', 'suppliers', 'config', 'control'].includes(view)
+        ? view
+        : 'director';
     state.currentProjectId = null;
     state.view = 'projects';
     renderAll();
@@ -2239,7 +2875,7 @@ function openModal() {
     _selType = null;
     document.getElementById('roomNameInput').value = '';
     document.getElementById('addConfirmBtn').disabled = true;
-    document.getElementById('typeGrid').innerHTML = Object.entries(ROOM_TEMPLATES).map(([t, tpl]) =>
+    document.getElementById('typeGrid').innerHTML = getRoomTypeEntries().map(([t, tpl]) =>
         `<button class="type-btn" id="tbtn_${t}" onclick="selectType('${t}')">${tpl.icon}<span class="t-name">${tpl.name}</span></button>`
     ).join('');
     document.getElementById('addModal').classList.add('open');
@@ -2257,7 +2893,7 @@ function selectType(type) {
     const inp = document.getElementById('roomNameInput');
     const currentName = inp.value.trim();
     const prevAutoName = prevType ? ROOM_TEMPLATES[prevType]?.name : '';
-    if (!currentName || currentName === prevAutoName) inp.value = ROOM_TEMPLATES[type].name;
+    if (!currentName || currentName === prevAutoName) inp.value = ROOM_TEMPLATES[type]?.name || 'Estancia';
     validateModal(); inp.focus(); inp.select();
 }
 function validateModal() {
@@ -2278,6 +2914,11 @@ function isAdmin() {
 function currentUserLabel() {
     return state.currentUser?.name || state.currentUser?.username || 'Usuario';
 }
+function roleLabel(user) {
+    if (user?.role === 'admin') return 'Administrador';
+    if (user?.role === 'company') return 'Empresa';
+    return 'Colaborador';
+}
 function createDemoTradeInfo() {
     return {
         fontaneria: { companyId:'demo-company-1', company:'Aqua Levante', phone:'620 111 111', budget:'6800', startDate:'2026-05-12', endDate:'2026-05-23' },
@@ -2287,9 +2928,9 @@ function createDemoTradeInfo() {
 }
 function createDemoProjects() {
     const baseProjects = [
-        { id:'demo-project-1', name:'Villa Noelia', address:'Guardamar del Segura', description:'Reforma integral premium', color:'#e67e22', createdAt:new Date().toISOString() },
-        { id:'demo-project-2', name:'Atico Centro', address:'Alicante centro', description:'Actualizacion de acabados y cocina', color:'#1976D2', createdAt:new Date().toISOString() },
-        { id:'demo-project-3', name:'Local Showroom', address:'Elche parque empresarial', description:'Adecuacion comercial en marcha', color:'#27ae60', createdAt:new Date().toISOString() },
+        { id:'demo-project-1', name:'Villa Noelia', address:'Guardamar del Segura', description:'Reforma integral premium', color:'#e67e22', clientId:'demo-client-1', createdAt:new Date().toISOString() },
+        { id:'demo-project-2', name:'Atico Centro', address:'Alicante centro', description:'Actualizacion de acabados y cocina', color:'#1976D2', clientId:'demo-client-2', createdAt:new Date().toISOString() },
+        { id:'demo-project-3', name:'Local Showroom', address:'Elche parque empresarial', description:'Adecuacion comercial en marcha', color:'#27ae60', clientId:'demo-client-3', createdAt:new Date().toISOString() },
     ].map(normalizeProject);
     const payload = {
         version: BACKUP_FILE_VERSION,
@@ -2306,6 +2947,12 @@ function createDemoProjects() {
                 normalizeSupplier({ id:'demo-supplier-1', name:'Ceramicas Costa', phone:'966 000 001', categories:['materials','finishes'], address:'Alicante' }),
                 normalizeSupplier({ id:'demo-supplier-2', name:'Cocinas Forma', phone:'966 000 002', categories:['finishes','furniture'], address:'Murcia' }),
             ],
+            clients: [
+                normalizeClient({ id:'demo-client-1', name:'Noelia Martinez', phone:'611 111 111', whatsapp:'611 111 111', email:'noelia@demo.es', status:'activo', address:'Guardamar del Segura' }),
+                normalizeClient({ id:'demo-client-2', name:'Javier H.', phone:'622 222 222', whatsapp:'622 222 222', email:'javier@demo.es', status:'activo', address:'Alicante centro' }),
+                normalizeClient({ id:'demo-client-3', name:'Studio Retail Levante', phone:'633 333 333', whatsapp:'633 333 333', email:'retail@demo.es', status:'prospecto', address:'Elche' }),
+            ],
+            directorProfile: normalizeDirectorProfile({ name:'Jose Juan', studio:'Tupromocion Studio', phone:'644 000 000', whatsapp:'644 000 000', email:'direccion@tupromocion.es', city:'Alicante' }),
         },
         companies: [
             normalizeCompany({ id:'demo-company-1', name:'Aqua Levante', phone:'620 111 111', email:'obra@aqualevante.es', address:'Orihuela Costa', cif:'B10000001', trades:['fontaneria','sanitarios'] }),
@@ -2316,6 +2963,12 @@ function createDemoProjects() {
             normalizeSupplier({ id:'demo-supplier-1', name:'Ceramicas Costa', phone:'966 000 001', categories:['materials','finishes'], address:'Alicante' }),
             normalizeSupplier({ id:'demo-supplier-2', name:'Cocinas Forma', phone:'966 000 002', categories:['finishes','furniture'], address:'Murcia' }),
         ],
+        clients: [
+            normalizeClient({ id:'demo-client-1', name:'Noelia Martinez', phone:'611 111 111', whatsapp:'611 111 111', email:'noelia@demo.es', status:'activo', address:'Guardamar del Segura' }),
+            normalizeClient({ id:'demo-client-2', name:'Javier H.', phone:'622 222 222', whatsapp:'622 222 222', email:'javier@demo.es', status:'activo', address:'Alicante centro' }),
+            normalizeClient({ id:'demo-client-3', name:'Studio Retail Levante', phone:'633 333 333', whatsapp:'633 333 333', email:'retail@demo.es', status:'prospecto', address:'Elche' }),
+        ],
+        directorProfile: normalizeDirectorProfile({ name:'Jose Juan', studio:'Tupromocion Studio', phone:'644 000 000', whatsapp:'644 000 000', email:'direccion@tupromocion.es', city:'Alicante' }),
         projectData: [
             {
                 projectId:'demo-project-1',
@@ -2329,7 +2982,7 @@ function createDemoProjects() {
                     projectCalendar: [{ id:uid(), title:'Inicio fontaneria', date:'2026-05-12', done:false }, { id:uid(), title:'Revision cliente cocina', date:'2026-05-29', done:false }],
                     sectionPhotos: {},
                     projectGalleries: { during:[], final:[], recreation3d:[] },
-                    projectBudget: { clientBudget:'32500', repercutedBudget:'27100', targetMargin:'16', approvedDate:'2026-05-05', notes:'Cliente aprueba extras aparte.' },
+                    projectBudget: normalizeProjectBudget({ lines:[{ id:uid(), concept:'Reforma integral', sell:'32500', cost:'27100', status:'aceptado', notes:'Base aprobada por cliente' }, { id:uid(), concept:'Extras cocina', sell:'2400', cost:'1850', status:'revision', notes:'Pendiente cierre de encimera' }], approvedDate:'2026-05-05', notes:'Cliente aprueba extras aparte.' }),
                     projectFinishes: normalizeFinishSpecs([{ key:'floorType', selection:'Porcelanico 90x90 mate', status:'aceptado', providerUrl:'https://proveedor-demo.es/suelo', renderUrl:'https://render-demo.es/suelo' }, { key:'countertop', selection:'Dekton claro', status:'propuesto' }]),
                     projectFurniture: [{ id:uid(), name:'Mueble TV salon', space:'Salon', status:'pedido', supplierId:'demo-supplier-2', budget:'1800', notes:'En chapa roble' }],
                 },
@@ -2345,7 +2998,7 @@ function createDemoProjects() {
                     projectCalendar: [{ id:uid(), title:'Entrega propuesta acabados', date:'2026-06-02', done:false }],
                     sectionPhotos: {},
                     projectGalleries: { during:[], final:[], recreation3d:[] },
-                    projectBudget: { clientBudget:'18400', repercutedBudget:'15100', targetMargin:'18', approvedDate:'2026-05-20', notes:'' },
+                    projectBudget: normalizeProjectBudget({ lines:[{ id:uid(), concept:'Actualizacion cocina y acabados', sell:'18400', cost:'15100', status:'aceptado', notes:'' }], approvedDate:'2026-05-20', notes:'' }),
                     projectFinishes: normalizeFinishSpecs([{ key:'kitchenType', selection:'Cocina lineal lacada', status:'aceptado' }, { key:'kitchenTiles', selection:'Sin azulejo, frente porcelanico', status:'propuesto' }]),
                     projectFurniture: [],
                 },
@@ -2361,7 +3014,7 @@ function createDemoProjects() {
                     projectCalendar: [{ id:uid(), title:'Apertura prevista', date:'2026-06-20', done:false }],
                     sectionPhotos: {},
                     projectGalleries: { during:[], final:[], recreation3d:[] },
-                    projectBudget: { clientBudget:'28900', repercutedBudget:'24600', targetMargin:'15', approvedDate:'2026-05-01', notes:'Hay mobiliario comercial fuera de contrato.' },
+                    projectBudget: normalizeProjectBudget({ lines:[{ id:uid(), concept:'Adecuacion comercial', sell:'28900', cost:'24600', status:'aceptado', notes:'' }, { id:uid(), concept:'Mobiliario comercial', sell:'0', cost:'0', status:'fuera', notes:'Fuera de contrato' }], approvedDate:'2026-05-01', notes:'Hay mobiliario comercial fuera de contrato.' }),
                     projectFinishes: normalizeFinishSpecs([{ key:'wallColor', selection:'Gris piedra suave', status:'aceptado' }]),
                     projectFurniture: [{ id:uid(), name:'Mostrador recepcion', space:'Entrada', status:'recibido', supplierId:'demo-supplier-2', budget:'2400', notes:'Listo para montar' }],
                 },
@@ -2378,6 +3031,18 @@ function loadDemoData() {
     initState();
     renderAll();
 }
+async function loadDemoData() {
+    if (state.projects.length && !confirm('Esto aÃ±adira una demo sobre la informacion actual. Â¿Continuar?')) return;
+    applyBackupPayload(createDemoProjects());
+    await ensureDemoCompanyUsers();
+    initState();
+    renderAll();
+}
+function toggleNewUserRoleFields() {
+    const role = document.getElementById('newUserRole')?.value || 'colaborador';
+    const wrap = document.getElementById('newUserCompanyWrap');
+    if (wrap) wrap.style.display = role === 'company' ? 'block' : 'none';
+}
 async function createAdminUser() {
     if (!isAdmin()) {
         alert('Solo el administrador puede crear usuarios.');
@@ -2387,8 +3052,13 @@ async function createAdminUser() {
     const username = document.getElementById('newUsername')?.value.trim().toLowerCase();
     const password = document.getElementById('newUserPassword')?.value || '';
     const role = document.getElementById('newUserRole')?.value || 'colaborador';
+    const companyId = document.getElementById('newUserCompanyId')?.value || '';
     if (!name || !username || !password) {
         alert('Completa nombre, usuario y contrasena.');
+        return;
+    }
+    if (role === 'company' && !companyId) {
+        alert('Selecciona la empresa para este usuario.');
         return;
     }
     const users = getUsers();
@@ -2401,6 +3071,7 @@ async function createAdminUser() {
         username,
         name,
         role,
+        companyId: role === 'company' ? companyId : '',
         active: true,
         mustChangePassword: role !== 'admin',
         passwordHash: await sha256(password),
@@ -2408,6 +3079,7 @@ async function createAdminUser() {
     });
     saveUsers(users);
     ['newUserName','newUsername','newUserPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const companySel = document.getElementById('newUserCompanyId'); if (companySel) companySel.value = '';
     renderAll();
 }
 async function resetUserPassword(userId) {
@@ -2477,8 +3149,277 @@ function saveAdminSettings() {
     saveSettings();
     renderAll();
 }
+function updateFinishRuleField(ruleKey, field, value) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    const rule = settings.finishRules.find(item => item.key === ruleKey);
+    if (!rule) return;
+    rule[field] = value;
+    state.settings = settings;
+    saveSettings();
+}
+function toggleFinishRuleRoomType(ruleKey, roomType) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    const rule = settings.finishRules.find(item => item.key === ruleKey);
+    if (!rule) return;
+    const has = (rule.roomTypes || []).includes(roomType);
+    rule.roomTypes = has
+        ? rule.roomTypes.filter(type => type !== roomType)
+        : [...(rule.roomTypes || []), roomType];
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function addFinishRule() {
+    const settings = normalizeSettings(state.settings || getSettings());
+    settings.finishRules.push({ key: uid(), label:'Nuevo acabado', roomTypes:[] });
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function deleteFinishRule(ruleKey) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    settings.finishRules = settings.finishRules.filter(item => item.key !== ruleKey);
+    state.settings = settings;
+    state.projectFinishes = normalizeFinishSpecs(state.projectFinishes, settings.finishRules);
+    saveSettings();
+    saveState();
+    renderAll();
+}
+function updateTaskUnitRule(ruleId, field, value) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    const rule = settings.taskUnitRules.find(item => item.id === ruleId);
+    if (!rule) return;
+    rule[field] = value;
+    state.settings = settings;
+    saveSettings();
+}
+function addTaskUnitRule() {
+    const settings = normalizeSettings(state.settings || getSettings());
+    settings.taskUnitRules.push({ id: uid(), keyword:'', unit:'ud' });
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function deleteTaskUnitRule(ruleId) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    settings.taskUnitRules = settings.taskUnitRules.filter(item => item.id !== ruleId);
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function addCustomRoomType() {
+    const name = document.getElementById('configRoomName')?.value.trim();
+    const icon = document.getElementById('configRoomIcon')?.value.trim() || 'ST';
+    const baseType = document.getElementById('configRoomBase')?.value || 'general';
+    if (!name) {
+        alert('Pon un nombre para la estancia.');
+        return;
+    }
+    const key = slugify(name).replace(/-/g, '_');
+    if (ROOM_TEMPLATES[key]) {
+        alert('Ya existe una estancia con ese nombre.');
+        return;
+    }
+    const settings = normalizeSettings(state.settings || getSettings());
+    settings.customRoomTypes.push({ key, name, icon, baseType });
+    state.settings = settings;
+    saveSettings();
+    ['configRoomName','configRoomIcon'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const baseEl = document.getElementById('configRoomBase');
+    if (baseEl) baseEl.value = 'general';
+    renderAll();
+}
+function deleteCustomRoomType(roomKey) {
+    if ((state.rooms || []).some(room => room.type === roomKey)) {
+        alert('No puedes borrar esta estancia porque ya se usa en una obra.');
+        return;
+    }
+    const settings = normalizeSettings(state.settings || getSettings());
+    settings.customRoomTypes = settings.customRoomTypes.filter(room => room.key !== roomKey);
+    settings.roomTypeConfigs = settings.roomTypeConfigs.filter(config => config.key !== roomKey);
+    settings.finishRules = settings.finishRules.map(rule => ({
+        ...rule,
+        roomTypes: (rule.roomTypes || []).filter(type => type !== roomKey),
+    }));
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+let _configRoomTypeSelected = null;
+function selectConfiguratorRoomType(roomKey) {
+    _configRoomTypeSelected = roomKey;
+    renderAll();
+}
+function updateRoomTypeTask(roomKey, tradeId, taskIndex, value) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    let config = settings.roomTypeConfigs.find(item => item.key === roomKey);
+    if (!config) {
+        config = buildRoomTypeConfigFromTemplate(roomKey);
+        settings.roomTypeConfigs.push(config);
+    }
+    if (!Array.isArray(config.trades[tradeId])) config.trades[tradeId] = [];
+    config.trades[tradeId][taskIndex] = value;
+    state.settings = settings;
+    saveSettings();
+}
+function addRoomTypeTask(roomKey, tradeId) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    let config = settings.roomTypeConfigs.find(item => item.key === roomKey);
+    if (!config) {
+        config = buildRoomTypeConfigFromTemplate(roomKey);
+        settings.roomTypeConfigs.push(config);
+    }
+    if (!Array.isArray(config.trades[tradeId])) config.trades[tradeId] = [];
+    config.trades[tradeId].push('Nueva tarea');
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function deleteRoomTypeTask(roomKey, tradeId, taskIndex) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    let config = settings.roomTypeConfigs.find(item => item.key === roomKey);
+    if (!config) return;
+    config.trades[tradeId] = (config.trades[tradeId] || []).filter((_, index) => index !== taskIndex);
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function toggleRoomTypeTrade(roomKey, tradeId) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    let config = settings.roomTypeConfigs.find(item => item.key === roomKey);
+    if (!config) {
+        config = buildRoomTypeConfigFromTemplate(roomKey);
+        settings.roomTypeConfigs.push(config);
+    }
+    if (Array.isArray(config.trades[tradeId])) delete config.trades[tradeId];
+    else config.trades[tradeId] = [];
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function resetRoomTypeConfig(roomKey) {
+    const settings = normalizeSettings(state.settings || getSettings());
+    settings.roomTypeConfigs = settings.roomTypeConfigs.filter(config => config.key !== roomKey);
+    state.settings = settings;
+    saveSettings();
+    renderAll();
+}
+function applyTaskUnitRulesToProject() {
+    (state.rooms || []).forEach(room => {
+        const trades = room?.trades && typeof room.trades === 'object' ? room.trades : {};
+        Object.values(trades).forEach(tasks => {
+            (Array.isArray(tasks) ? tasks : []).forEach(task => {
+                task.unit = suggestTaskUnit(task.text);
+            });
+        });
+    });
+    saveState();
+    renderAll();
+}
+function renderConfiguratorPanel() {
+    const settings = normalizeSettings(state.settings || getSettings());
+    const roomTypes = getRoomTypeOptions();
+    const baseOptions = roomTypes.filter(room => BASE_ROOM_TEMPLATE_KEYS.has(room.key));
+    const selectedRoomKey = roomTypes.some(room => room.key === _configRoomTypeSelected) ? _configRoomTypeSelected : (roomTypes[0]?.key || null);
+    _configRoomTypeSelected = selectedRoomKey;
+    const selectedRoom = roomTypes.find(room => room.key === selectedRoomKey) || roomTypes[0] || null;
+    const selectedConfig = selectedRoom ? getRoomTypeConfig(settings, selectedRoom.key) : null;
+    const roomChips = (selected, ruleKey) => roomTypes.map(room => `
+        <button class="config-chip ${(selected || []).includes(room.key) ? 'active' : ''}" onclick="toggleFinishRuleRoomType('${ruleKey}','${room.key}')">${esc(room.icon || 'ST')} ${esc(room.name)}</button>
+    `).join('');
+    return `
+        <div class="dash-header">
+            <div><div class="page-title">Configurador</div><div class="page-sub">Ajusta estancias, acabados y unidades de forma visual.</div></div>
+        </div>
+        <div class="admin-grid">
+            <div style="display:flex;flex-direction:column;gap:18px">
+                <div class="admin-card">
+                    <div class="section-label">Tipos de estancia</div>
+                    <div class="admin-mini-note">AquÃ­ puedes crear nuevas estancias base, por ejemplo exterior, terraza o garaje.</div>
+                    <div class="config-room-grid" style="margin-top:12px">
+                        ${roomTypes.map(room => `<div class="config-room-card">
+                            <div class="config-room-head"><span class="config-room-icon">${esc(room.icon || 'ST')}</span><div><div class="config-room-name">${esc(room.name)}</div><div class="company-job-meta">${BASE_ROOM_TEMPLATE_KEYS.has(room.key) ? 'Base del sistema' : 'Personalizada'}</div></div></div>
+                            ${BASE_ROOM_TEMPLATE_KEYS.has(room.key) ? '' : `<button class="btn btn-danger" onclick="deleteCustomRoomType('${room.key}')" style="padding:8px 12px">Eliminar</button>`}
+                        </div>`).join('')}
+                    </div>
+                    <div class="config-add-room-box">
+                        <div class="admin-inline-grid">
+                            <div class="modal-field"><label class="modal-label">Nueva estancia</label><input class="modal-input" id="configRoomName" type="text" placeholder="Ej: Exterior"></div>
+                            <div class="modal-field"><label class="modal-label">Icono corto</label><input class="modal-input" id="configRoomIcon" type="text" placeholder="Ej: 🌿 o EXT"></div>
+                        </div>
+                        <div class="admin-inline-grid">
+                            <div class="modal-field"><label class="modal-label">Tomar trabajos de</label><select class="modal-input" id="configRoomBase">${baseOptions.map(room => `<option value="${room.key}">${esc(room.name)}</option>`).join('')}</select></div>
+                            <div style="display:flex;align-items:end"><button class="btn btn-primary" onclick="addCustomRoomType()">+ Añadir estancia</button></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="admin-card">
+                    <div class="section-label">Configuracion de acabados</div>
+                    <div class="admin-mini-note">Marca en quÃ© estancias debe aparecer cada acabado.</div>
+                    <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+                        ${settings.finishRules.map(rule => `<div class="admin-card" style="padding:14px">
+                            <div class="modal-field"><label class="modal-label">Nombre</label><input class="modal-input" value="${esc(rule.label)}" oninput="updateFinishRuleField('${rule.key}','label',this.value)"></div>
+                            <div class="config-chip-grid">${roomChips(rule.roomTypes, rule.key)}</div>
+                            <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-danger" onclick="deleteFinishRule('${rule.key}')">Eliminar</button></div>
+                        </div>`).join('')}
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                        <button class="btn btn-primary" onclick="addFinishRule()">+ Nuevo acabado</button>
+                    </div>
+                </div>
+                <div class="admin-card">
+                    <div class="section-label">Trabajos por estancia</div>
+                    <div class="admin-mini-note">Selecciona una estancia y ajusta quÃ© oficios y tareas trae por defecto.</div>
+                    <div class="config-chip-grid" style="margin-top:12px">
+                        ${roomTypes.map(room => `<button class="config-chip ${selectedRoom?.key === room.key ? 'active' : ''}" onclick="selectConfiguratorRoomType('${room.key}')">${esc(room.icon || 'ST')} ${esc(room.name)}</button>`).join('')}
+                    </div>
+                    ${selectedRoom && selectedConfig ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px">
+                        <div class="company-job-meta">Base actual para ${esc(selectedRoom.name)}</div>
+                        <button class="btn btn-ghost" onclick="resetRoomTypeConfig('${selectedRoom.key}')">Restaurar base</button>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+                        ${Object.entries(TRADES).map(([tradeId, trade]) => {
+                            const enabled = Array.isArray(selectedConfig.trades?.[tradeId]);
+                            const tasks = enabled ? selectedConfig.trades[tradeId] : [];
+                            return `<div class="admin-card" style="padding:14px">
+                                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+                                    <div style="font-weight:800;color:${trade.color}">${esc(trade.icon)} ${esc(trade.name)}</div>
+                                    <button class="btn ${enabled ? 'btn-danger' : 'btn-ghost'}" onclick="toggleRoomTypeTrade('${selectedRoom.key}','${tradeId}')" style="padding:8px 12px">${enabled ? 'Quitar oficio' : 'Añadir oficio'}</button>
+                                </div>
+                                ${enabled ? `<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px">
+                                    ${tasks.map((task, index) => `<div class="admin-inline-grid" style="align-items:end">
+                                        <div class="modal-field"><label class="modal-label">Tarea ${index + 1}</label><input class="modal-input" value="${esc(task)}" oninput="updateRoomTypeTask('${selectedRoom.key}','${tradeId}',${index},this.value)"></div>
+                                        <div style="display:flex;align-items:end"><button class="btn btn-danger" onclick="deleteRoomTypeTask('${selectedRoom.key}','${tradeId}',${index})">Eliminar</button></div>
+                                    </div>`).join('')}
+                                    <button class="btn btn-primary" onclick="addRoomTypeTask('${selectedRoom.key}','${tradeId}')">+ Añadir tarea</button>
+                                </div>` : `<div class="company-empty-line" style="margin-top:10px">Este oficio no se usa en esta estancia.</div>`}
+                            </div>`;
+                        }).join('')}
+                    </div>` : ''}
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:18px">
+                <div class="admin-card">
+                    <div class="section-label">Configuracion de unidades</div>
+                    <div class="admin-mini-note">La app sugerira la unidad segun palabras clave. Ejemplo: rodapie = ml, suelo = m2.</div>
+                    <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+                        ${settings.taskUnitRules.map(rule => `<div class="admin-inline-grid" style="align-items:end">
+                            <div class="modal-field"><label class="modal-label">Palabra clave</label><input class="modal-input" value="${esc(rule.keyword)}" oninput="updateTaskUnitRule('${rule.id}','keyword',this.value)"></div>
+                            <div class="modal-field"><label class="modal-label">Unidad</label><select class="modal-input" onchange="updateTaskUnitRule('${rule.id}','unit',this.value)">${UNITS.map(unit => `<option value="${unit.v}" ${rule.unit===unit.v?'selected':''}>${unit.l}</option>`).join('')}</select></div>
+                            <div><button class="btn btn-danger" onclick="deleteTaskUnitRule('${rule.id}')">Eliminar</button></div>
+                        </div>`).join('')}
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                        <button class="btn btn-primary" onclick="addTaskUnitRule()">+ Nueva regla</button>
+                        <button class="btn btn-ghost" onclick="applyTaskUnitRulesToProject()">Aplicar a esta obra</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
 function renderAdminPanel() {
     const users = getUsers();
+    const companyOptions = (state.companies || []).map(company => `<option value="${company.id}">${esc(company.name)}</option>`).join('');
     const userRows = users.map(user => `
         <div class="admin-user-item">
             <div>
@@ -2503,8 +3444,9 @@ function renderAdminPanel() {
                     </div>
                     <div class="admin-inline-grid">
                         <div class="modal-field"><label class="modal-label">Contrasena inicial</label><input class="modal-input" id="newUserPassword" type="password" placeholder="Temporal"></div>
-                        <div class="modal-field"><label class="modal-label">Rol</label><select class="modal-input" id="newUserRole"><option value="colaborador">Colaborador</option><option value="admin">Administrador</option></select></div>
+                        <div class="modal-field"><label class="modal-label">Rol</label><select class="modal-input" id="newUserRole" onchange="toggleNewUserRoleFields()"><option value="colaborador">Colaborador</option><option value="company">Empresa</option><option value="admin">Administrador</option></select></div>
                     </div>
+                    <div class="modal-field" id="newUserCompanyWrap" style="display:none"><label class="modal-label">Empresa vinculada</label><select class="modal-input" id="newUserCompanyId"><option value="">Selecciona una empresa</option>${companyOptions}</select></div>
                     <button class="btn btn-primary" onclick="createAdminUser()">Crear usuario</button>
                 </div>`
         : `
@@ -2789,6 +3731,7 @@ function renderSidebar() {
 function renderDashboard() {
     const overall = overallProgress();
     const proj = state.projects.find(p => p.id === state.currentProjectId) || {};
+    const client = getProjectClient(proj);
     const todayIso = isoDateLocal(new Date());
     const upcomingItems = getCalendarItems().filter(item => item.date >= isoDateLocal(new Date())).slice(0, 5);
     const planos = (state.documents.planos || []).slice(0, 3);
@@ -2832,9 +3775,9 @@ function renderDashboard() {
     }).join('');
 
     return `
-        ${proj.coverImage ? `<div class="project-hero"><img src="${proj.coverImage}" alt="${esc(proj.name || 'Obra')}"><div class="project-hero-overlay"><div class="project-hero-title">${esc(proj.name || 'Obra')}</div><div class="project-hero-sub">${esc(proj.address || proj.description || 'Vista principal del proyecto')}</div></div></div>` : ''}
+        ${proj.coverImage ? `<div class="project-hero"><img src="${proj.coverImage}" alt="${esc(proj.name || 'Obra')}"><div class="project-hero-overlay"><div class="project-hero-title">${esc(proj.name || 'Obra')}</div><div class="project-hero-sub">${esc(client?.name ? `Cliente: ${client.name} · ` : '')}${esc(proj.address || proj.description || 'Vista principal del proyecto')}</div></div></div>` : ''}
         <div class="dash-header">
-            <div><div class="page-title">Resumen del proyecto</div><div class="page-sub">${overall.done} de ${overall.total} tareas ? ${state.rooms.length} estancia${state.rooms.length!==1?'s':''} ? Vista r?pida de la obra.</div></div>
+            <div><div class="page-title">Resumen del proyecto</div><div class="page-sub">${overall.done} de ${overall.total} tareas ? ${state.rooms.length} estancia${state.rooms.length!==1?'s':''} ? ${esc(client?.name || 'Sin cliente asignado')}.</div></div>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
                 <button class="btn btn-ghost" onclick="navigate('docs')">Documentos</button>
                 <button class="btn btn-ghost" onclick="navigate('calendar')">Calendario</button>
@@ -2845,6 +3788,7 @@ function renderDashboard() {
         </div>
         <div class="summary-cards">
             <div class="summary-card"><div class="sc-label">Progreso global</div><div class="sc-value">${overall.pct}%</div><div class="sc-pct">${overall.done}/${overall.total} tareas</div></div>
+            <div class="summary-card"><div class="sc-label">Cliente</div><div class="sc-value">${esc((client?.name || 'Sin cliente').slice(0, 18))}</div><div class="sc-pct">${esc(client?.phone || 'Sin telefono')}</div></div>
             <div class="summary-card"><div class="sc-label">Documentos</div><div class="sc-value">${generalDocs.length}</div><div class="sc-pct">Acceso rapido a docs y planos</div></div>
             <div class="summary-card"><div class="sc-label">Fotos recientes</div><div class="sc-value">${latestPhotos.length}</div><div class="sc-pct">Ultimas imagenes subidas</div></div>
             <div class="summary-card"><div class="sc-label">Mensajes</div><div class="sc-value">${state.projectNotes.length}</div><div class="sc-pct">Comunicacion interna</div></div>
@@ -3109,6 +4053,25 @@ function renderTaskRow(roomId, tradeId, task) {
             <textarea class="task-notes-inp" placeholder="Notas, empresa responsable, observaciones..."
                 onclick="event.stopPropagation()"
                 onblur="saveTaskField('${roomId}','${task.id}','notes',this.value)">${esc(task.notes||'')}</textarea>
+            <div class="detail-cost-row">
+                <div class="cost-field">
+                    <span class="cost-label">Trabajador</span>
+                    <input class="cost-input" type="text"
+                        value="${esc(task.workerName||'')}" placeholder="Nombre del peon"
+                        onclick="event.stopPropagation()"
+                        onblur="saveTaskField('${roomId}','${task.id}','workerName',this.value)">
+                </div>
+                <div class="cost-field">
+                    <span class="cost-label">WhatsApp</span>
+                    <input class="cost-input" type="text"
+                        value="${esc(task.workerPhone||'')}" placeholder="Telefono"
+                        onclick="event.stopPropagation()"
+                        onblur="saveTaskField('${roomId}','${task.id}','workerPhone',this.value)">
+                </div>
+                <div style="display:flex;align-items:end">
+                    <button class="btn btn-ghost" onclick="event.stopPropagation();sendTaskWhatsapp('${state.currentProjectId}','${roomId}','${tradeId}','${task.id}')">Enviar</button>
+                </div>
+            </div>
             ${renderCertSection(roomId, task)}
         </div>
     </div>`;
@@ -3238,8 +4201,84 @@ function renderProjectCompaniesPanel() {
         }).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">EMP</div><h2>Sin empresas asignadas</h2><p>Asigna una empresa desde cada oficio para verla aqui.</p></div>`}`;
 }
 
+function getProjectRoomTypes() {
+    return [...new Set((state.rooms || []).map(room => room?.type).filter(Boolean))];
+}
+
+function getVisibleFinishRules() {
+    const roomTypes = getProjectRoomTypes();
+    return getFinishRules().filter(rule => (rule.roomTypes || []).some(type => roomTypes.includes(type)));
+}
+
+function getProjectRoomOptions() {
+    return (state.rooms || []).map(room => ({
+        id: room.id,
+        name: room.name || ROOM_TEMPLATES[room.type]?.name || 'Estancia',
+        type: room.type || '',
+    }));
+}
+
+function getRoomNameById(roomId) {
+    const room = (state.rooms || []).find(entry => entry.id === roomId);
+    return room?.name || '';
+}
+
+let _finishRoomFilterId = '';
+function setFinishRoomFilter(roomId) {
+    _finishRoomFilterId = roomId || '';
+    renderAll();
+}
+
+function updateFinishSpec(key, field, value) {
+    const items = normalizeFinishSpecs(state.projectFinishes);
+    const item = items.find(entry => entry.key === key);
+    if (!item) return;
+    item[field] = value;
+    state.projectFinishes = items;
+    saveState();
+}
+
+function getCollection(listKey) {
+    const items = state[listKey];
+    return Array.isArray(items) ? items : [];
+}
+
+function addCollectionItem(listKey) {
+    const items = getCollection(listKey);
+    items.push({
+        id: uid(),
+        name: '',
+        roomId: '',
+        space: '',
+        status: 'pendiente',
+        supplierId: '',
+        budget: '',
+        notes: '',
+    });
+    state[listKey] = items;
+    saveState();
+    renderAll();
+}
+
+function updateCollectionItem(listKey, itemId, field, value) {
+    const items = getCollection(listKey);
+    const item = items.find(entry => entry.id === itemId);
+    if (!item) return;
+    item[field] = value;
+    if (field === 'roomId') item.space = getRoomNameById(value);
+    state[listKey] = items;
+    saveState();
+}
+
+function deleteCollectionItem(listKey, itemId) {
+    state[listKey] = getCollection(listKey).filter(entry => entry.id !== itemId);
+    saveState();
+    renderAll();
+}
+
 function renderCollectionPanel(listKey, title, subtitle) {
     const items = getCollection(listKey);
+    const roomOptions = getProjectRoomOptions();
     return `
         <div class="dash-header">
             <div><div class="page-title">${title}</div><div class="page-sub">${subtitle}</div></div>
@@ -3249,7 +4288,10 @@ function renderCollectionPanel(listKey, title, subtitle) {
             <div class="admin-card">
                 <div class="admin-inline-grid">
                     <input class="modal-input" value="${esc(item.name)}" placeholder="Nombre" oninput="updateCollectionItem('${listKey}','${item.id}','name',this.value)">
-                    <input class="modal-input" value="${esc(item.space)}" placeholder="Estancia o zona" oninput="updateCollectionItem('${listKey}','${item.id}','space',this.value)">
+                    <select class="modal-input" onchange="updateCollectionItem('${listKey}','${item.id}','roomId',this.value)">
+                        <option value="">Estancia o zona</option>
+                        ${roomOptions.map(room => `<option value="${room.id}" ${item.roomId===room.id?'selected':''}>${esc(room.name)}</option>`).join('')}
+                    </select>
                     <select class="modal-input" onchange="updateCollectionItem('${listKey}','${item.id}','status',this.value)">
                         <option value="pendiente" ${item.status==='pendiente'?'selected':''}>Pendiente</option>
                         <option value="pedido" ${item.status==='pedido'?'selected':''}>Pedido</option>
@@ -3270,11 +4312,28 @@ function renderCollectionPanel(listKey, title, subtitle) {
 }
 
 function renderFinishesPanel() {
-    const items = normalizeFinishSpecs(state.projectFinishes);
+    const visibleRules = getVisibleFinishRules();
+    const roomOptions = getProjectRoomOptions();
+    if (_finishRoomFilterId && !roomOptions.some(room => room.id === _finishRoomFilterId)) _finishRoomFilterId = '';
+    const visibleKeys = new Set(visibleRules.map(rule => rule.key));
+    const rulesByKey = Object.fromEntries(visibleRules.map(rule => [rule.key, rule]));
+    const items = normalizeFinishSpecs(state.projectFinishes).filter(item => visibleKeys.has(item.key)).filter(item => {
+        if (!_finishRoomFilterId) return true;
+        if (item.roomId) return item.roomId === _finishRoomFilterId;
+        const room = roomOptions.find(entry => entry.id === _finishRoomFilterId);
+        const rule = rulesByKey[item.key];
+        return !!(room && rule && (rule.roomTypes || []).includes(room.type));
+    });
     const accepted = items.filter(item => item.status === 'aceptado').length;
+    if (!items.length) {
+        return `<div class="dash-header">
+            <div><div class="page-title">Acabados finales</div><div class="page-sub">Los acabados dependen de las estancias reales de la obra.</div></div>
+        </div>
+        <div class="empty-state"><div class="empty-icon">ACB</div><h2>Sin acabados aplicables</h2><p>Añade una cocina, un baño u otras estancias para que aparezcan aquí solo los acabados que correspondan.</p></div>`;
+    }
     return `
         <div class="dash-header">
-            <div><div class="page-title">Acabados finales</div><div class="page-sub">Selecciones propuestas por arquitectura para validacion del cliente.</div></div>
+            <div><div class="page-title">Acabados finales</div><div class="page-sub">Selecciones propuestas por arquitectura según las estancias añadidas.</div></div>
         </div>
         <div class="summary-cards">
             <div class="summary-card"><div class="sc-label">Partidas</div><div class="sc-value">${items.length}</div><div class="sc-pct">Acabados a revisar</div></div>
@@ -3295,6 +4354,10 @@ function renderFinishesPanel() {
                 <div class="admin-inline-grid">
                     <div class="modal-field"><label class="modal-label">Seleccion</label><input class="modal-input" value="${esc(item.selection || '')}" placeholder="Modelo, color o referencia" oninput="updateFinishSpec('${item.key}','selection',this.value)"></div>
                     <div class="modal-field"><label class="modal-label">Proveedor</label><input class="modal-input" value="${esc(item.providerUrl || '')}" placeholder="Link a proveedor" oninput="updateFinishSpec('${item.key}','providerUrl',this.value)"></div>
+                </div>
+                <div class="admin-inline-grid">
+                    <div class="modal-field"><label class="modal-label">Estancia concreta</label><select class="modal-input" onchange="updateFinishSpec('${item.key}','roomId',this.value)"><option value="">Selecciona estancia</option>${roomOptions.map(room => `<option value="${room.id}" ${item.roomId===room.id?'selected':''}>${esc(room.name)}</option>`).join('')}</select></div>
+                    <div class="modal-field"><label class="modal-label">Zona</label><input class="modal-input" value="${esc(getRoomNameById(item.roomId) || '')}" placeholder="Se rellena desde la estancia" disabled></div>
                 </div>
                 <div class="admin-inline-grid">
                     <div class="modal-field"><label class="modal-label">Fotografia</label><input class="modal-input" value="${esc(item.photoUrl || '')}" placeholder="Link a foto" oninput="updateFinishSpec('${item.key}','photoUrl',this.value)"></div>
@@ -3321,13 +4384,121 @@ function renderSuppliersPanel() {
         }).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">PRV</div><h2>Sin proveedores registrados</h2><p>Desde aqui podras preparar materiales, acabados y mobiliario para varias obras.</p></div>`}`;
 }
 
+function saveDirectorField(field, value) {
+    state.directorProfile = normalizeDirectorProfile({ ...(state.directorProfile || {}), [field]: value });
+    saveDirectorProfile();
+    saveIndex();
+    renderAll();
+}
+
+function renderDirectorPanel() {
+    const profile = normalizeDirectorProfile(state.directorProfile);
+    const activeProjects = (state.projects || []).length;
+    const activeClients = (state.clients || []).filter(client => client.status !== 'cerrado').length;
+    const todayIso = isoDateLocal(new Date());
+    const pendingCalendar = (state.projects || []).flatMap(project => {
+        const data = getProjectData(project.id);
+        return (data.projectCalendar || [])
+            .filter(item => !item.done && item.date >= todayIso)
+            .map(item => ({ ...item, projectName: project.name }));
+    }).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(0, 5);
+    const recentProjects = (state.projects || []).slice(0, 4).map(project => {
+        const client = getProjectClient(project);
+        return `<div class="nav-item" onclick="enterProject('${project.id}')">
+            <span class="nav-icon">OBR</span>
+            <div class="nav-info">
+                <div class="nav-name">${esc(project.name)}</div>
+                <div class="nav-sub">${esc(client?.name || 'Sin cliente')} · ${esc(project.address || 'Sin direccion')}</div>
+            </div>
+        </div>`;
+    }).join('');
+    return `
+        <div class="dash-header">
+            <div><div class="page-title">Panel de director de obra</div><div class="page-sub">Vision general de clientes, obras y siguientes pasos.</div></div>
+        </div>
+        <div class="summary-cards">
+            <div class="summary-card"><div class="sc-label">Obras</div><div class="sc-value">${activeProjects}</div><div class="sc-pct">Proyectos activos</div></div>
+            <div class="summary-card"><div class="sc-label">Clientes</div><div class="sc-value">${state.clients.length}</div><div class="sc-pct">${activeClients} en curso</div></div>
+            <div class="summary-card"><div class="sc-label">Empresas</div><div class="sc-value">${state.companies.length}</div><div class="sc-pct">Directorio global</div></div>
+            <div class="summary-card"><div class="sc-label">Proveedores</div><div class="sc-value">${state.suppliers.length}</div><div class="sc-pct">Apoyo a compras</div></div>
+        </div>
+        <div class="admin-grid">
+            <div style="display:flex;flex-direction:column;gap:18px">
+                <div class="admin-card">
+                    <div class="section-label">Ficha profesional</div>
+                    <div class="admin-inline-grid" style="margin-top:12px">
+                        <div class="modal-field"><label class="modal-label">Nombre</label><input class="modal-input" value="${esc(profile.name)}" onchange="saveDirectorField('name',this.value)"></div>
+                        <div class="modal-field"><label class="modal-label">Estudio</label><input class="modal-input" value="${esc(profile.studio)}" onchange="saveDirectorField('studio',this.value)"></div>
+                    </div>
+                    <div class="admin-inline-grid">
+                        <div class="modal-field"><label class="modal-label">Telefono</label><input class="modal-input" value="${esc(profile.phone)}" onchange="saveDirectorField('phone',this.value)"></div>
+                        <div class="modal-field"><label class="modal-label">WhatsApp</label><input class="modal-input" value="${esc(profile.whatsapp)}" onchange="saveDirectorField('whatsapp',this.value)"></div>
+                    </div>
+                    <div class="admin-inline-grid">
+                        <div class="modal-field"><label class="modal-label">Email</label><input class="modal-input" value="${esc(profile.email)}" onchange="saveDirectorField('email',this.value)"></div>
+                        <div class="modal-field"><label class="modal-label">Ciudad</label><input class="modal-input" value="${esc(profile.city)}" onchange="saveDirectorField('city',this.value)"></div>
+                    </div>
+                    <div class="modal-field"><label class="modal-label">Web</label><input class="modal-input" value="${esc(profile.website)}" onchange="saveDirectorField('website',this.value)"></div>
+                </div>
+                <div class="admin-card">
+                    <div class="section-label">Obras recientes</div>
+                    ${recentProjects || '<div class="calendar-empty">Sin obras todavia.</div>'}
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:18px">
+                <div class="admin-card">
+                    <div class="section-label">Siguientes fechas</div>
+                    ${pendingCalendar.length ? pendingCalendar.map(item => `<div class="agenda-item" style="padding-left:0;padding-right:0"><div class="agenda-date">${formatShortDate(item.date)}</div><div class="agenda-text">${esc(item.title)}<div class="agenda-sub">${esc(item.projectName)}</div></div></div>`).join('') : '<div class="calendar-empty">Sin hitos pendientes.</div>'}
+                </div>
+                <div class="admin-card">
+                    <div class="section-label">Accesos rapidos</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+                        <button class="btn btn-ghost" onclick="switchPortalView('clients')">Clientes</button>
+                        <button class="btn btn-ghost" onclick="switchPortalView('projects')">Obras</button>
+                        <button class="btn btn-ghost" onclick="switchPortalView('companies')">Empresas</button>
+                        <button class="btn btn-ghost" onclick="switchPortalView('suppliers')">Proveedores</button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderClientsPanel() {
+    return `
+        <div class="dash-header">
+            <div><div class="page-title">Clientes</div><div class="page-sub">Directorio global de clientes para enlazar con cada obra.</div></div>
+            <button class="add-room-btn" onclick="openClientModal()">+ Nuevo cliente</button>
+        </div>
+        ${state.clients.length ? `<div class="card-grid">${state.clients.map(raw => {
+            const client = normalizeClient(raw);
+            const projects = (state.projects || []).filter(project => project.clientId === client.id);
+            const status = clientStatusMeta(client.status);
+            return `<div class="company-card" onclick="openClientModal('${client.id}')">
+                <div class="company-card-top">
+                    <div class="company-avatar">CLI</div>
+                    <div style="flex:1;min-width:0">
+                        <div class="company-name">${esc(client.name)}</div>
+                        <div class="company-meta">${client.phone ? `Telefono: ${esc(client.phone)}<br>` : ''}${client.email ? `Email: ${esc(client.email)}<br>` : ''}${client.address ? esc(client.address) : ''}</div>
+                    </div>
+                </div>
+                <div class="company-summary-grid">
+                    <div class="company-summary-box"><strong>${projects.length}</strong><span>obras</span></div>
+                    <div class="company-summary-box"><strong>${client.whatsapp ? 'OK' : '—'}</strong><span>WhatsApp</span></div>
+                    <div class="company-summary-box"><strong>${status.label}</strong><span>estado</span></div>
+                </div>
+                <div class="company-section-title">Obras asociadas</div>
+                ${projects.length ? projects.slice(0, 4).map(project => `<div class="company-job-line"><span class="company-status-badge status-${status.cls}">${status.label}</span><div><div>${esc(project.name)}</div><div class="company-job-meta">${esc(project.address || 'Sin direccion')}</div></div></div>`).join('') : `<div class="company-empty-line">Sin obras asignadas todavia.</div>`}
+            </div>`;
+        }).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">CLI</div><h2>Sin clientes registrados</h2><p>Empieza creando tu directorio de clientes para asociarlos a cada obra.</p></div>`}`;
+}
+
 function renderCompaniesPanel() {
     return `
         <div class="dash-header">
             <div><div class="page-title">Gestion de empresas</div><div class="page-sub">Directorio global de empresas y autonomos.</div></div>
             <button class="add-room-btn" onclick="openCompanyModal()">+ Nueva empresa</button>
         </div>
-        ${state.companies.length ? `<div class="card-grid">${state.companies.map(rawCompany => {
+        ${state.companies.length ? `<div class="card-grid company-directory-grid">${state.companies.map(rawCompany => {
             const c = normalizeCompany(rawCompany);
             const jobs = getCompanyJobs(c.id);
             const lastHistory = [...(c.history || [])].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 3);
@@ -3340,8 +4511,132 @@ function renderCompaniesPanel() {
         }).join('')}</div>` : `<div class="empty-state"><div class="empty-icon">EMP</div><h2>Sin empresas registradas</h2><p>Añade aqui las empresas que despues asignaras a cada oficio.</p></div>`}`;
 }
 
+function renderCompanyPortal() {
+    const company = currentUserCompany();
+    if (!company) {
+        return `<div class="projects-page">
+            <div class="projects-topbar"><div class="portal-brand"><span class="portal-logo">EMP</span><h1>Portal de empresa</h1></div><div class="portal-actions"><button class="btn btn-ghost" onclick="logoutUser()">Salir</button></div></div>
+            <div class="projects-body"><div class="empty-state"><div class="empty-icon">EMP</div><h2>Empresa no vinculada</h2><p>Este usuario no tiene empresa asignada todavia.</p></div></div>
+        </div>`;
+    }
+    const jobs = getCompanyJobs(company.id);
+    const grouped = {};
+    jobs.forEach(job => {
+        const key = `${job.projectId}__${job.tradeId}`;
+        if (!grouped[key]) {
+            grouped[key] = {
+                projectId: job.projectId,
+                projectName: job.projectName,
+                projectAddress: job.projectAddress,
+                tradeId: job.tradeId,
+                tradeName: job.tradeName,
+                tradeInfo: job.tradeInfo || getTradeInfo(job.tradeId),
+                tasks: [],
+            };
+        }
+        grouped[key].tasks.push(job);
+    });
+    const groups = Object.values(grouped).sort((a, b) => `${a.projectName}${a.tradeName}`.localeCompare(`${b.projectName}${b.tradeName}`));
+    const certLabels = { pending:'Pendiente de certificar', approved:'Aprobado', revision:'Revisar' };
+    const certClasses = { pending:'cert-pending', approved:'cert-approved', revision:'cert-revision' };
+    const totalTasks = jobs.length;
+    const pendingTasks = jobs.filter(job => !job.task?.done).length;
+    const pendingCerts = jobs.filter(job => job.task?.certStatus === 'pending').length;
+    const tradeCards = groups.map(group => {
+        const info = group.tradeInfo || getTradeInfo(group.tradeId);
+        const docs = info.tradeDocuments || [];
+        return `<div class="admin-card company-portal-card">
+            <div class="dash-header" style="margin-bottom:12px">
+                <div>
+                    <div class="page-title" style="font-size:20px">${esc(group.projectName)} · ${esc(group.tradeName)}</div>
+                    <div class="page-sub">${esc(group.projectAddress || 'Sin direccion')} · ${group.tasks.length} tarea${group.tasks.length !== 1 ? 's' : ''}</div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-ghost" onclick="sendTradeWhatsappForProject('${group.projectId}','${group.tradeId}')">WhatsApp empresa</button>
+                    <button class="btn btn-primary" onclick="uploadTradeDocumentForProject('${group.projectId}','${group.tradeId}')">+ Subir presupuesto</button>
+                </div>
+            </div>
+            <div class="admin-inline-grid">
+                <div class="modal-field"><label class="modal-label">Inicio previsto</label><input class="modal-input" type="date" value="${esc(info.startDate || '')}" onchange="updateTradeInfoInProject('${group.projectId}','${group.tradeId}','startDate',this.value)"></div>
+                <div class="modal-field"><label class="modal-label">Fin previsto</label><input class="modal-input" type="date" value="${esc(info.endDate || '')}" onchange="updateTradeInfoInProject('${group.projectId}','${group.tradeId}','endDate',this.value)"></div>
+            </div>
+            <div class="admin-inline-grid">
+                <div class="modal-field"><label class="modal-label">Dias estimados</label><input class="modal-input" type="number" min="1" value="${esc(info.durationDays || '')}" onchange="updateTradeInfoInProject('${group.projectId}','${group.tradeId}','durationDays',this.value)"></div>
+                <div class="modal-field"><label class="modal-label">Telefono empresa</label><input class="modal-input" value="${esc(info.phone || company.phone || '')}" onchange="updateTradeInfoInProject('${group.projectId}','${group.tradeId}','phone',this.value)"></div>
+            </div>
+            <div class="modal-field"><label class="modal-label">Notas de empresa</label><textarea class="modal-input" rows="2" onblur="updateTradeInfoInProject('${group.projectId}','${group.tradeId}','scheduleNotes',this.value)">${esc(info.scheduleNotes || '')}</textarea></div>
+            <div style="margin-top:14px">
+                <div class="section-label">Presupuestos y documentos del oficio</div>
+                ${docs.length ? `<div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">${docs.map(doc => `<div class="doc-item">
+                    <div style="flex:1;min-width:0">
+                        <input class="modal-input" value="${esc(doc.name || '')}" onblur="saveTradeDocumentFieldInProject('${group.projectId}','${group.tradeId}','${doc.id}','name',this.value)">
+                        <textarea class="modal-input" rows="2" style="margin-top:6px" placeholder="Notas o importe..." onblur="saveTradeDocumentFieldInProject('${group.projectId}','${group.tradeId}','${doc.id}','notes',this.value)">${esc(doc.notes || '')}</textarea>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button class="btn btn-ghost" onclick="viewDocumentFromProject('${group.projectId}','${doc.docId}')">Ver</button>
+                        <button class="btn btn-danger" onclick="deleteTradeDocumentForProject('${group.projectId}','${group.tradeId}','${doc.id}')">Eliminar</button>
+                    </div>
+                </div>`).join('')}</div>` : `<div class="admin-mini-note" style="margin-top:8px">Todavia no hay presupuesto subido para este oficio.</div>`}
+            </div>
+            <div style="margin-top:16px">
+                <div class="section-label">Trabajos asignados</div>
+                <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px">
+                    ${group.tasks.map(job => {
+                        const task = job.task || {};
+                        const photo = task.certPhotoId ? getPhotoFromProject(group.projectId, task.certPhotoId) : null;
+                        const cert = task.certStatus ? `<span class="cert-status-badge ${certClasses[task.certStatus] || ''}">${certLabels[task.certStatus] || task.certStatus}</span>` : `<span class="company-status-badge ${job.status.cls}">${job.status.label}</span>`;
+                        return `<div class="company-task-editor">
+                            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+                                <div>
+                                    <div style="font-weight:800">${esc(job.roomName)} · ${esc(task.text || job.taskText)}</div>
+                                    <div class="company-job-meta">${cert}</div>
+                                </div>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                    <button class="btn btn-ghost" onclick="sendTaskWhatsapp('${job.projectId}','${job.roomId}','${job.tradeId}','${job.id}')">WhatsApp peon</button>
+                                    <button class="btn btn-primary" onclick="uploadCertPhotoInProject('${job.projectId}','${job.roomId}','${job.id}')">${photo ? 'Cambiar foto' : 'Subir foto'}</button>
+                                    <button class="btn ${task.done ? 'btn-ghost' : 'btn-ghost'}" onclick="toggleTaskDoneInProject('${job.projectId}','${job.roomId}','${job.id}')">${task.done ? 'Marcar pendiente' : 'Marcar hecho'}</button>
+                                </div>
+                            </div>
+                            ${photo ? `<div class="cert-photo-wrap" style="margin-top:10px"><img src="${photo}" onclick="openLightbox('${photo}')" title="Ver foto"></div>` : ''}
+                            <div class="admin-inline-grid" style="margin-top:10px">
+                                <div class="modal-field"><label class="modal-label">Inicio</label><input class="modal-input" type="date" value="${esc(task.startDate || '')}" onchange="updateTaskFieldInProject('${job.projectId}','${job.roomId}','${job.id}','startDate',this.value)"></div>
+                                <div class="modal-field"><label class="modal-label">Fin previsto</label><input class="modal-input" type="date" value="${esc(task.dueDate || '')}" onchange="updateTaskFieldInProject('${job.projectId}','${job.roomId}','${job.id}','dueDate',this.value)"></div>
+                            </div>
+                            <div class="admin-inline-grid">
+                                <div class="modal-field"><label class="modal-label">Peon / trabajador</label><input class="modal-input" value="${esc(task.workerName || '')}" placeholder="Nombre" onblur="updateTaskFieldInProject('${job.projectId}','${job.roomId}','${job.id}','workerName',this.value)"></div>
+                                <div class="modal-field"><label class="modal-label">WhatsApp trabajador</label><input class="modal-input" value="${esc(task.workerPhone || '')}" placeholder="Telefono" onblur="updateTaskFieldInProject('${job.projectId}','${job.roomId}','${job.id}','workerPhone',this.value)"></div>
+                            </div>
+                            <div class="modal-field"><label class="modal-label">Informacion del trabajo</label><textarea class="modal-input" rows="2" onblur="updateTaskFieldInProject('${job.projectId}','${job.roomId}','${job.id}','desc',this.value)">${esc(task.desc || '')}</textarea></div>
+                            <div class="modal-field"><label class="modal-label">Notas</label><textarea class="modal-input" rows="2" onblur="updateTaskFieldInProject('${job.projectId}','${job.roomId}','${job.id}','notes',this.value)">${esc(task.notes || '')}</textarea></div>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+    return `<div class="projects-page">
+        <div class="projects-topbar">
+            <div class="portal-brand"><span class="portal-logo">EMP</span><h1>${esc(company.name)}</h1></div>
+            <div class="portal-actions"><button class="btn btn-ghost" onclick="logoutUser()">Salir</button></div>
+        </div>
+        <div class="projects-body">
+            <div class="projects-title">Portal de empresa</div>
+            <div class="projects-sub">Aqui puedes ver tus trabajos, planificar fechas, enviar al peon por WhatsApp y subir presupuesto o fotos.</div>
+            <div class="summary-cards">
+                <div class="summary-card"><div class="sc-label">Obras</div><div class="sc-value">${new Set(jobs.map(job => job.projectId)).size}</div><div class="sc-pct">Con trabajos asignados</div></div>
+                <div class="summary-card"><div class="sc-label">Tareas</div><div class="sc-value">${totalTasks}</div><div class="sc-pct">En total</div></div>
+                <div class="summary-card s-pending"><div class="sc-label">Pendientes</div><div class="sc-value">${pendingTasks}</div><div class="sc-pct">Sin cerrar</div></div>
+                <div class="summary-card"><div class="sc-label">Por certificar</div><div class="sc-value">${pendingCerts}</div><div class="sc-pct">Con foto pendiente</div></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:16px">
+                ${tradeCards || `<div class="empty-state"><div class="empty-icon">EMP</div><h2>Sin trabajos asignados</h2><p>Cuando asignes una empresa a un oficio, aparecera aqui.</p></div>`}
+            </div>
+        </div>
+    </div>`;
+}
 function renderProjectsLayout() {
     const cards = state.projects.map(p => {
+        const client = getProjectClient(p);
         let rooms = [];
         try { rooms = getProjectData(p.id).rooms || []; } catch (e) {}
         let total = 0, done = 0;
@@ -3351,7 +4646,7 @@ function renderProjectsLayout() {
             <button class="project-edit-btn" onclick="event.stopPropagation();openProjectModal('${p.id}')">Editar</button>
             ${p.coverImage ? `<div class="project-card-cover"><img src="${p.coverImage}" alt="${esc(p.name)}"></div>` : ''}
             <div class="project-card-name">${esc(p.name)}</div>
-            <div class="project-card-meta">${p.address ? `${esc(p.address)}<br>` : ''}${p.description ? esc(p.description) : ''}</div>
+            <div class="project-card-meta">${client?.name ? `Cliente: ${esc(client.name)}<br>` : ''}${p.address ? `${esc(p.address)}<br>` : ''}${p.description ? esc(p.description) : ''}</div>
             <div class="project-card-stats">
                 <div class="proj-stat"><div class="proj-stat-val">${pct}%</div><div class="proj-stat-lbl">progreso</div></div>
                 <div class="proj-stat"><div class="proj-stat-val">${done}/${total}</div><div class="proj-stat-lbl">tareas</div></div>
@@ -3375,50 +4670,235 @@ function renderPortalTopbar(activeView, allowNewProject = false) {
     return `<div class="projects-topbar">
         <div class="portal-brand"><span class="portal-logo">GO</span><h1>${esc(state.settings.appName || 'Gestion de Obra')}</h1></div>
         <div class="portal-tabs">
-            <button class="btn ${activeView === 'control' ? 'btn-primary' : ''}" onclick="switchPortalView('control')" style="font-size:13px;padding:8px 14px">Panel de control</button>
+            <button class="btn ${activeView === 'director' ? 'btn-primary' : ''}" onclick="switchPortalView('director')" style="font-size:13px;padding:8px 14px">Director</button>
+            <button class="btn ${activeView === 'clients' ? 'btn-primary' : ''}" onclick="switchPortalView('clients')" style="font-size:13px;padding:8px 14px">Clientes</button>
             <button class="btn ${activeView === 'projects' ? 'btn-primary' : ''}" onclick="switchPortalView('projects')" style="font-size:13px;padding:8px 14px">Obras</button>
             <button class="btn ${activeView === 'companies' ? 'btn-primary' : ''}" onclick="switchPortalView('companies')" style="font-size:13px;padding:8px 14px">Empresas</button>
             <button class="btn ${activeView === 'suppliers' ? 'btn-primary' : ''}" onclick="switchPortalView('suppliers')" style="font-size:13px;padding:8px 14px">Proveedores</button>
+            <button class="btn ${activeView === 'config' ? 'btn-primary' : ''}" onclick="switchPortalView('config')" style="font-size:13px;padding:8px 14px">Configurador</button>
+            <button class="btn ${activeView === 'control' ? 'btn-primary' : ''}" onclick="switchPortalView('control')" style="font-size:13px;padding:8px 14px">Administracion</button>
         </div>
         <div class="portal-actions"><button class="btn btn-ghost" onclick="logoutUser()" style="font-size:13px;padding:8px 14px">Salir</button>${allowNewProject ? `<button class="btn btn-primary" onclick="openProjectModal()" style="font-size:13px;padding:8px 16px">+ Nueva obra</button>` : ''}</div>
     </div>`;
 }
 
 function renderPortalLayout() {
+    if (isCompanyUser()) return renderCompanyPortal();
     if (state.portalView === 'projects') return renderProjectsLayout();
+    if (state.portalView === 'director') return `<div class="projects-page">${renderPortalTopbar('director')}<div class="projects-body">${renderDirectorPanel()}</div></div>`;
+    if (state.portalView === 'clients') return `<div class="projects-page">${renderPortalTopbar('clients')}<div class="projects-body">${renderClientsPanel()}</div></div>`;
     if (state.portalView === 'companies') return `<div class="projects-page">${renderPortalTopbar('companies')}<div class="projects-body">${renderCompaniesPanel()}</div></div>`;
     if (state.portalView === 'suppliers') return `<div class="projects-page">${renderPortalTopbar('suppliers')}<div class="projects-body">${renderSuppliersPanel()}</div></div>`;
+    if (state.portalView === 'config') return `<div class="projects-page">${renderPortalTopbar('config')}<div class="projects-body">${renderConfiguratorPanel()}</div></div>`;
     return `<div class="projects-page">${renderPortalTopbar('control')}<input id="backupImportInput" type="file" accept=".json,application/json" onchange="importBackupFile(event)" style="display:none"><div class="projects-body"><div class="projects-title">Panel de control</div><div class="projects-sub">Usuarios, copias, demo y configuracion general.</div><div data-storage-status style="font-size:12px;color:var(--text-light);margin:-8px 0 20px">${storageStatusText()}</div>${renderAdminPanel()}</div></div>`;
 }
 
 function updateProjectBudget(field, value) {
-    state.projectBudget = { ...emptyProjectBudget(), ...(state.projectBudget || {}), [field]: value };
+    state.projectBudget = normalizeProjectBudget({ ...(state.projectBudget || emptyProjectBudget()), [field]: value });
+    saveState();
+    renderAll();
+}
+
+function getProjectBudgetTotals(budget) {
+    const safeBudget = normalizeProjectBudget(budget || emptyProjectBudget());
+    const totals = safeBudget.lines.reduce((acc, line) => {
+        acc.sell += parseMoney(line.sell) || 0;
+        acc.cost += parseMoney(line.cost) || 0;
+        return acc;
+    }, { sell:0, cost:0 });
+    const marginAmount = totals.sell - totals.cost;
+    const marginPct = totals.sell > 0 ? (marginAmount / totals.sell) * 100 : null;
+    const payments = safeBudget.paymentPlan.reduce((acc, item) => {
+        const amount = parseMoney(item.amount) || 0;
+        acc.planned += amount;
+        if (item.status === 'cobrado') acc.paid += amount;
+        return acc;
+    }, { planned:0, paid:0 });
+    payments.pending = Math.max(payments.planned - payments.paid, 0);
+    return { totals, marginAmount, marginPct, payments };
+}
+
+function refreshProjectBudgetUI() {
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    const { totals, marginAmount, marginPct, payments } = getProjectBudgetTotals(budget);
+    const byId = id => document.getElementById(id);
+    if (byId('budgetSummarySell')) byId('budgetSummarySell').textContent = formatEur(totals.sell);
+    if (byId('budgetSummaryCost')) byId('budgetSummaryCost').textContent = formatEur(totals.cost);
+    if (byId('budgetSummaryMargin')) byId('budgetSummaryMargin').textContent = formatEur(marginAmount);
+    if (byId('budgetSummaryMarginPct')) byId('budgetSummaryMarginPct').textContent = marginPct !== null ? `${marginPct.toFixed(1)}%` : 'Sin datos';
+    if (byId('budgetPaymentPlanned')) byId('budgetPaymentPlanned').textContent = formatEur(payments.planned);
+    if (byId('budgetPaymentPaid')) byId('budgetPaymentPaid').textContent = formatEur(payments.paid);
+    if (byId('budgetPaymentPending')) byId('budgetPaymentPending').textContent = formatEur(payments.pending);
+    budget.lines.forEach(line => {
+        const sell = parseMoney(line.sell) || 0;
+        const cost = parseMoney(line.cost) || 0;
+        const margin = sell - cost;
+        if (byId(`budgetLineTitle_${line.id}`)) byId(`budgetLineTitle_${line.id}`).textContent = line.concept || 'Nueva partida';
+        if (byId(`budgetLineSell_${line.id}`)) byId(`budgetLineSell_${line.id}`).textContent = formatEur(sell);
+        if (byId(`budgetLineCost_${line.id}`)) byId(`budgetLineCost_${line.id}`).textContent = formatEur(cost);
+        if (byId(`budgetLineMargin_${line.id}`)) byId(`budgetLineMargin_${line.id}`).textContent = formatEur(margin);
+    });
+}
+
+function addProjectBudgetLine() {
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    budget.lines.push({ id: uid(), concept:'', sell:'', cost:'', status:'pendiente', notes:'' });
+    state.projectBudget = budget;
+    saveState();
+    renderAll();
+}
+
+function updateProjectBudgetLine(lineId, field, value) {
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    const line = budget.lines.find(item => item.id === lineId);
+    if (!line) return;
+    line[field] = value;
+    state.projectBudget = budget;
+    saveState();
+    refreshProjectBudgetUI();
+}
+
+function deleteProjectBudgetLine(lineId) {
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    budget.lines = budget.lines.filter(item => item.id !== lineId);
+    state.projectBudget = budget;
+    saveState();
+    renderAll();
+}
+
+function budgetStatusMeta(status) {
+    const map = {
+        pendiente: { label:'Pendiente', cls:'pending' },
+        aceptado:  { label:'Aceptado', cls:'done' },
+        revision:  { label:'En revision', cls:'progress' },
+        fuera:     { label:'Fuera', cls:'pending' }
+    };
+    return map[status] || map.pendiente;
+}
+
+function paymentStatusMeta(status) {
+    const map = {
+        pendiente: { label:'Pendiente', cls:'pending' },
+        cobrado:   { label:'Cobrado', cls:'done' },
+        parcial:   { label:'Parcial', cls:'progress' },
+    };
+    return map[status] || map.pendiente;
+}
+
+function addPaymentPlanItem() {
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    budget.paymentPlan.push({ id: uid(), label:'', date:'', amount:'', status:'pendiente', paidDate:'', notes:'' });
+    state.projectBudget = budget;
+    saveState();
+    renderAll();
+}
+
+function updatePaymentPlanItem(itemId, field, value) {
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    const item = budget.paymentPlan.find(entry => entry.id === itemId);
+    if (!item) return;
+    item[field] = value;
+    state.projectBudget = budget;
+    saveState();
+    refreshProjectBudgetUI();
+}
+
+function deletePaymentPlanItem(itemId) {
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    budget.paymentPlan = budget.paymentPlan.filter(entry => entry.id !== itemId);
+    state.projectBudget = budget;
     saveState();
     renderAll();
 }
 
 function renderProjectBudgetPanel() {
-    const budget = { ...emptyProjectBudget(), ...(state.projectBudget || {}) };
-    const clientBudget = parseMoney(budget.clientBudget);
-    const repercutedBudget = parseMoney(budget.repercutedBudget);
-    const estimatedCost = getMaterialsData().totalCost;
-    const effectiveCost = repercutedBudget !== null ? repercutedBudget : estimatedCost;
-    const marginAmount = clientBudget !== null && effectiveCost !== null ? clientBudget - effectiveCost : null;
-    const marginPct = clientBudget && marginAmount !== null ? (marginAmount / clientBudget) * 100 : null;
+    const budget = normalizeProjectBudget(state.projectBudget || emptyProjectBudget());
+    const pdfCount = (state.documents.presupuesto || []).length;
+    const { totals, marginAmount, marginPct, payments } = getProjectBudgetTotals(budget);
     return `<div class="location-card" style="margin-bottom:16px">
-        <div class="dash-header" style="margin-bottom:16px"><div><div class="page-title" style="font-size:20px">Presupuesto de obra</div><div class="page-sub">Control entre presupuesto al cliente y coste repercutido.</div></div></div>
+        <div class="dash-header" style="margin-bottom:16px"><div><div class="page-title" style="font-size:20px">Presupuestos</div><div class="page-sub">PDFs y cuadro simple para controlar venta, coste y margen.</div></div><button class="btn btn-ghost" onclick="uploadDocument('presupuesto')">+ Subir PDF</button></div>
         <div class="summary-cards" style="margin-bottom:18px">
-            <div class="summary-card s-total"><div class="sc-label">Presupuesto cliente</div><div class="sc-value">${clientBudget !== null ? formatEur(clientBudget) : '—'}</div><div class="sc-pct">Venta aprobada</div></div>
-            <div class="summary-card s-pending"><div class="sc-label">Repercutido / coste</div><div class="sc-value">${effectiveCost !== null ? formatEur(effectiveCost) : '—'}</div><div class="sc-pct">${repercutedBudget !== null ? 'Valor manual' : 'Calculado desde materiales'}</div></div>
-            <div class="summary-card ${marginAmount !== null && marginAmount >= 0 ? 's-done' : 's-total'}"><div class="sc-label">Margen estimado</div><div class="sc-value">${marginAmount !== null ? formatEur(marginAmount) : '—'}</div><div class="sc-pct">${marginPct !== null ? `${marginPct.toFixed(1)}% sobre venta` : 'Completa importes'}</div></div>
+            <div class="summary-card"><div class="sc-label">PDFs</div><div class="sc-value">${pdfCount}</div><div class="sc-pct">Subidos</div></div>
+            <div class="summary-card s-total"><div class="sc-label">Venta</div><div class="sc-value" id="budgetSummarySell">${formatEur(totals.sell)}</div><div class="sc-pct">Total cliente</div></div>
+            <div class="summary-card s-pending"><div class="sc-label">Coste</div><div class="sc-value" id="budgetSummaryCost">${formatEur(totals.cost)}</div><div class="sc-pct">Total repercutido</div></div>
+            <div class="summary-card ${marginAmount >= 0 ? 's-done' : 's-total'}"><div class="sc-label">Margen</div><div class="sc-value" id="budgetSummaryMargin">${formatEur(marginAmount)}</div><div class="sc-pct" id="budgetSummaryMarginPct">${marginPct !== null ? `${marginPct.toFixed(1)}%` : 'Sin datos'}</div></div>
         </div>
-        <div class="admin-inline-grid">
-            <div class="modal-field"><label class="modal-label">Presupuesto dado al cliente</label><input class="modal-input" value="${esc(budget.clientBudget || '')}" placeholder="Ej: 18500" oninput="updateProjectBudget('clientBudget',this.value)"></div>
-            <div class="modal-field"><label class="modal-label">Presupuesto repercutido</label><input class="modal-input" value="${esc(budget.repercutedBudget || '')}" placeholder="Si lo quieres fijar manualmente" oninput="updateProjectBudget('repercutedBudget',this.value)"></div>
-            <div class="modal-field"><label class="modal-label">Margen objetivo (%)</label><input class="modal-input" value="${esc(budget.targetMargin || '')}" placeholder="Ej: 18" oninput="updateProjectBudget('targetMargin',this.value)"></div>
+        <div class="section-label">Documentacion de presupuesto</div>
+        <div class="doc-list" style="margin-bottom:14px">
+            ${(state.documents.presupuesto || []).slice(0, 4).map(d => `<div class="doc-item"><span class="doc-type-icon">${d.fileType === 'application/pdf' ? 'PDF' : 'DOC'}</span><div style="flex:1;min-width:0"><div style="font-weight:700">${esc(d.name)}</div><div class="company-job-meta">Presupuesto adjunto</div></div><button class="doc-btn doc-btn-view" onclick="viewDocument('${d.docId}')">Ver</button></div>`).join('') || `<div class="doc-empty">Sin PDFs de presupuesto todavia.</div>`}
+        </div>
+        <div class="section-label">Pseudoexcel de control</div>
+        <div class="budget-lines">
+            ${budget.lines.map(line => {
+                const sell = parseMoney(line.sell) || 0;
+                const cost = parseMoney(line.cost) || 0;
+                const lineMargin = sell - cost;
+                const status = budgetStatusMeta(line.status);
+                return `<div class="admin-card budget-line-card">
+                <div class="budget-line-top">
+                    <div class="budget-line-title" id="budgetLineTitle_${line.id}">${esc(line.concept || 'Nueva partida')}</div>
+                    <span class="company-status-badge status-${status.cls}">${status.label}</span>
+                </div>
+                <div class="budget-line-metrics">
+                    <div class="budget-metric"><span>Venta</span><strong id="budgetLineSell_${line.id}">${formatEur(sell)}</strong></div>
+                    <div class="budget-metric"><span>Coste</span><strong id="budgetLineCost_${line.id}">${formatEur(cost)}</strong></div>
+                    <div class="budget-metric"><span>Margen</span><strong id="budgetLineMargin_${line.id}">${formatEur(lineMargin)}</strong></div>
+                </div>
+                <div class="admin-inline-grid">
+                    <div class="modal-field"><label class="modal-label">Concepto</label><input class="modal-input" value="${esc(line.concept)}" placeholder="Partida o capitulo" oninput="updateProjectBudgetLine('${line.id}','concept',this.value)"></div>
+                    <div class="modal-field"><label class="modal-label">Estado</label><select class="modal-input" onchange="updateProjectBudgetLine('${line.id}','status',this.value)"><option value="pendiente" ${line.status==='pendiente'?'selected':''}>Pendiente</option><option value="aceptado" ${line.status==='aceptado'?'selected':''}>Aceptado</option><option value="revision" ${line.status==='revision'?'selected':''}>Revision</option><option value="fuera" ${line.status==='fuera'?'selected':''}>Fuera</option></select></div>
+                </div>
+                <div class="admin-inline-grid">
+                    <div class="modal-field"><label class="modal-label">Venta</label><input class="modal-input" value="${esc(line.sell)}" placeholder="0,00" oninput="updateProjectBudgetLine('${line.id}','sell',this.value)"></div>
+                    <div class="modal-field"><label class="modal-label">Coste</label><input class="modal-input" value="${esc(line.cost)}" placeholder="0,00" oninput="updateProjectBudgetLine('${line.id}','cost',this.value)"></div>
+                </div>
+                <div class="admin-inline-grid">
+                    <div class="modal-field"><label class="modal-label">Notas</label><input class="modal-input" value="${esc(line.notes)}" placeholder="Observaciones" oninput="updateProjectBudgetLine('${line.id}','notes',this.value)"></div>
+                    <div style="display:flex;align-items:end"><button class="btn btn-danger" onclick="deleteProjectBudgetLine('${line.id}')">Eliminar</button></div>
+                </div>
+            </div>`;
+            }).join('') || `<div class="doc-empty">Sin lineas todavia. Crea la primera partida.</div>`}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+            <button class="btn btn-primary" onclick="addProjectBudgetLine()">+ Nueva partida</button>
+        </div>
+        <div class="section-label" style="margin-top:18px">Plan de pago</div>
+        <div class="summary-cards" style="margin-bottom:14px">
+            <div class="summary-card"><div class="sc-label">Previsto</div><div class="sc-value" id="budgetPaymentPlanned">${formatEur(payments.planned)}</div><div class="sc-pct">Pagos planificados</div></div>
+            <div class="summary-card s-done"><div class="sc-label">Cobrado</div><div class="sc-value" id="budgetPaymentPaid">${formatEur(payments.paid)}</div><div class="sc-pct">Importe recibido</div></div>
+            <div class="summary-card s-pending"><div class="sc-label">Pendiente</div><div class="sc-value" id="budgetPaymentPending">${formatEur(payments.pending)}</div><div class="sc-pct">Por cobrar</div></div>
+        </div>
+        <div class="budget-lines">
+            ${budget.paymentPlan.map(item => {
+                const status = paymentStatusMeta(item.status);
+                return `<div class="admin-card budget-line-card">
+                    <div class="budget-line-top">
+                        <div class="budget-line-title">${esc(item.label || 'Nuevo pago')}</div>
+                        <span class="company-status-badge status-${status.cls}">${status.label}</span>
+                    </div>
+                    <div class="admin-inline-grid">
+                        <div class="modal-field"><label class="modal-label">Concepto</label><input class="modal-input" value="${esc(item.label)}" placeholder="Ej: Reserva, segundo pago..." oninput="updatePaymentPlanItem('${item.id}','label',this.value)"></div>
+                        <div class="modal-field"><label class="modal-label">Importe</label><input class="modal-input" value="${esc(item.amount)}" placeholder="0,00" oninput="updatePaymentPlanItem('${item.id}','amount',this.value)"></div>
+                    </div>
+                    <div class="admin-inline-grid">
+                        <div class="modal-field"><label class="modal-label">Fecha prevista</label><input class="modal-input" type="date" value="${esc(item.date)}" oninput="updatePaymentPlanItem('${item.id}','date',this.value)"></div>
+                        <div class="modal-field"><label class="modal-label">Estado</label><select class="modal-input" onchange="updatePaymentPlanItem('${item.id}','status',this.value)"><option value="pendiente" ${item.status==='pendiente'?'selected':''}>Pendiente</option><option value="parcial" ${item.status==='parcial'?'selected':''}>Parcial</option><option value="cobrado" ${item.status==='cobrado'?'selected':''}>Cobrado</option></select></div>
+                    </div>
+                    <div class="admin-inline-grid">
+                        <div class="modal-field"><label class="modal-label">Fecha de pago</label><input class="modal-input" type="date" value="${esc(item.paidDate)}" oninput="updatePaymentPlanItem('${item.id}','paidDate',this.value)"></div>
+                        <div class="modal-field"><label class="modal-label">Notas</label><input class="modal-input" value="${esc(item.notes)}" placeholder="Transferencia, efectivo, observaciones..." oninput="updatePaymentPlanItem('${item.id}','notes',this.value)"></div>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-danger" onclick="deletePaymentPlanItem('${item.id}')">Eliminar</button></div>
+                </div>`;
+            }).join('') || `<div class="doc-empty">Sin pagos registrados todavia.</div>`}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+            <button class="btn btn-primary" onclick="addPaymentPlanItem()">+ Nuevo pago</button>
+        </div>
+        <div class="admin-inline-grid" style="margin-top:14px">
             <div class="modal-field"><label class="modal-label">Fecha de aprobacion</label><input class="modal-input" type="date" value="${esc(budget.approvedDate || '')}" oninput="updateProjectBudget('approvedDate',this.value)"></div>
+            <div class="modal-field"><label class="modal-label">Notas generales</label><input class="modal-input" value="${esc(budget.notes || '')}" placeholder="Condiciones o comentarios" oninput="updateProjectBudget('notes',this.value)"></div>
         </div>
-        <div class="modal-field" style="margin-top:14px"><label class="modal-label">Notas de presupuesto</label><textarea class="modal-input" rows="3" style="resize:vertical" placeholder="Condiciones, cambios, observaciones..." oninput="updateProjectBudget('notes',this.value)">${esc(budget.notes || '')}</textarea></div>
     </div>`;
 }
 

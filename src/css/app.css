@@ -88,6 +88,15 @@
         .admin-user-meta { font-size:12px; color:var(--text-light); margin-top:3px; }
         .admin-inline-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
         .admin-mini-note { font-size:12px; color:var(--text-light); line-height:1.5; margin-top:8px; }
+        .config-chip-grid { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+        .config-chip { border:1.5px solid var(--border); background:#fff; color:var(--text); border-radius:999px; padding:8px 12px; font-size:13px; font-family:inherit; cursor:pointer; }
+        .config-chip.active { background:#fff3e0; border-color:var(--primary); color:var(--primary-dark); font-weight:700; }
+        .config-room-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+        .config-room-card { background:#fafbfd; border:1px solid #eef1f4; border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px; }
+        .config-room-head { display:flex; align-items:flex-start; gap:10px; }
+        .config-room-icon { width:42px; height:42px; border-radius:12px; background:#e3f2fd; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+        .config-room-name { font-size:15px; font-weight:800; color:var(--text); }
+        .config-add-room-box { border-top:1px solid var(--border); margin-top:14px; padding-top:14px; }
 
         /* ─── Content ─── */
         .content { flex:1; padding:24px; overflow-y:auto; }
@@ -355,15 +364,18 @@
         .doc-empty { font-size:13px; color:var(--text-light); font-style:italic; padding:6px 0 10px; }
 
         /* ─── Companies ─── */
-        .company-card { background:white; border-radius:14px; padding:20px; border:2px solid transparent; box-shadow:0 1px 4px rgba(0,0,0,.07); transition:all .2s; cursor:pointer; }
+        .company-card { background:white; border-radius:14px; padding:20px; border:2px solid transparent; box-shadow:0 1px 4px rgba(0,0,0,.07); transition:all .2s; cursor:pointer; min-width:0; overflow:hidden; }
         .company-card:hover { border-color:var(--primary); transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.1); }
+        .company-portal-card { border:1px solid #f0e4d7; }
+        .company-directory-grid { grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); align-items:start; }
         .company-card-top { display:flex; align-items:flex-start; gap:12px; margin-bottom:12px; }
         .company-avatar { width:48px; height:48px; border-radius:12px; background:#e3f2fd; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
-        .company-name { font-size:16px; font-weight:700; margin-bottom:3px; }
-        .company-meta { font-size:12px; color:var(--text-light); line-height:1.8; }
+        .company-name { font-size:16px; font-weight:700; margin-bottom:3px; overflow-wrap:anywhere; }
+        .company-meta { font-size:12px; color:var(--text-light); line-height:1.8; overflow-wrap:anywhere; }
         .trade-tag { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; margin:2px 2px 0 0; }
-        .company-summary-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:12px 0; }
-        .company-summary-box { background:#f8f9fb; border:1px solid #eef1f4; border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:3px; text-align:center; }
+        .company-task-editor { border:1px solid #eef1f5; border-radius:14px; padding:14px; background:#fcfcfd; }
+        .company-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:12px 0; width:100%; min-width:0; }
+        .company-summary-box { background:#f8f9fb; border:1px solid #eef1f4; border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:3px; text-align:center; min-width:0; }
         .company-summary-box strong { font-size:18px; color:var(--text); }
         .company-summary-box span { font-size:11px; color:var(--text-light); text-transform:uppercase; letter-spacing:.04em; }
         .company-section-title { font-size:12px; font-weight:800; color:var(--text-light); text-transform:uppercase; letter-spacing:.05em; margin:14px 0 8px; }
@@ -377,6 +389,17 @@
         .status-revisado { background:#e3f2fd; color:#1565c0; }
         .company-person-editor, .company-history-editor { border:1px solid #eef1f4; border-radius:12px; padding:12px; background:#fafbfd; margin-bottom:10px; }
         .company-person-editor-grid, .company-history-editor-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+
+        /* Budget */
+        .budget-lines { display:flex; flex-direction:column; gap:10px; }
+        .budget-line-card { padding:14px; }
+        .budget-line-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+        .budget-line-title { font-size:15px; font-weight:800; color:var(--text); }
+        .budget-line-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
+        .budget-metric { background:#f8f9fb; border:1px solid #eef1f4; border-radius:12px; padding:10px 12px; }
+        .budget-metric span { display:block; font-size:11px; color:var(--text-light); text-transform:uppercase; letter-spacing:.04em; margin-bottom:4px; }
+        .budget-metric strong { font-size:16px; color:var(--text); }
+        .budget-payment-note { font-size:12px; color:var(--text-light); margin-top:6px; }
 
         /* ─── Notes ─── */
         .note-add-box { background:white; border-radius:14px; padding:20px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.07); }
@@ -490,7 +513,8 @@
             .modal { padding:22px 18px; border-radius:14px; }
             .type-grid { grid-template-columns:repeat(2,1fr); }
             .admin-grid,
-            .admin-inline-grid { grid-template-columns:1fr; }
+            .admin-inline-grid,
+            .config-room-grid { grid-template-columns:1fr; }
             .card-grid,
             .summary-cards,
             .photo-grid { grid-template-columns:1fr; }
@@ -529,21 +553,28 @@
             .trade-tasks[style*="padding:0"] { overflow-x:auto; }
             .company-summary-grid,
             .company-person-editor-grid,
-            .company-history-editor-grid { grid-template-columns:1fr; }
+            .company-history-editor-grid,
+            .budget-line-metrics { grid-template-columns:1fr; }
             .project-hero img { height:200px; }
         }
         @media (max-width: 640px) {
             body { font-size:14px; }
             .header { gap:10px; padding:10px 12px; }
+            .header-tabs { display:flex; flex-wrap:nowrap; overflow-x:auto; gap:8px; padding-bottom:4px; scroll-snap-type:x proximity; }
+            .header-tabs .header-tab { flex:0 0 auto; scroll-snap-align:start; }
             .proj-name-badge { max-width:120px; }
             .header-progress { width:100%; margin-left:0; justify-content:flex-end; }
             .hpbar { width:90px; }
             .content { padding:14px 12px; }
             .page-title { font-size:20px; }
             .page-sub { font-size:13px; }
+            .dash-header { flex-direction:column; align-items:stretch; }
             .add-room-btn,
-            .btn,
             .sidebar-add-btn { width:100%; justify-content:center; }
+            .portal-tabs { display:flex; flex-wrap:nowrap; overflow-x:auto; gap:8px; width:100%; padding-bottom:4px; scroll-snap-type:x proximity; }
+            .portal-tabs .btn { flex:0 0 auto; width:auto; min-width:max-content; scroll-snap-align:start; }
+            .portal-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; width:100%; }
+            .portal-actions .btn { width:100%; }
             .sidebar-global,
             .sidebar-section-title { padding-left:12px; padding-right:12px; }
             .nav-item { padding:10px 12px; }
@@ -590,6 +621,7 @@
             .project-card-cover { margin-left:-16px; margin-right:-16px; }
             .project-hero { border-radius:16px; }
             .project-hero img { height:180px; }
+            .project-hero-overlay { padding:16px; }
             .project-hero-title { font-size:24px; }
         }
         @media (max-width: 420px) {

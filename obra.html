@@ -40,6 +40,10 @@
             <input class="modal-input" id="projAddress" type="text" placeholder="Calle, número, ciudad">
         </div>
         <div class="modal-field">
+            <label class="modal-label">Cliente</label>
+            <select class="modal-input" id="projClientId"></select>
+        </div>
+        <div class="modal-field">
             <label class="modal-label">Indicaciones de acceso</label>
             <textarea class="modal-input" id="projLocationNotes" rows="2" style="resize:vertical" placeholder="Portal, planta, cómo llegar, referencia..."></textarea>
         </div>
@@ -166,6 +170,54 @@
             <button class="btn btn-ghost" onclick="closeSupplierModal()">Cancelar</button>
             <button class="btn btn-danger" id="supDeleteBtn" style="display:none" onclick="deleteSupplierFromModal()">Eliminar</button>
             <button class="btn btn-primary" onclick="confirmSupplier()">Guardar proveedor</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: cliente -->
+<div class="modal-overlay" id="clientModal" onclick="closeClientModal(event)">
+    <div class="modal" style="max-width:680px">
+        <div class="modal-title" id="clientModalTitle">Nuevo cliente</div>
+        <div class="modal-field">
+            <label class="modal-label">Nombre cliente *</label>
+            <input class="modal-input" id="cliName" type="text" placeholder="Ej: Noelia Martínez">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="modal-field">
+                <label class="modal-label">Teléfono</label>
+                <input class="modal-input" id="cliPhone" type="tel" placeholder="666 123 456">
+            </div>
+            <div class="modal-field">
+                <label class="modal-label">WhatsApp</label>
+                <input class="modal-input" id="cliWhatsapp" type="tel" placeholder="666 123 456">
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="modal-field">
+                <label class="modal-label">Email</label>
+                <input class="modal-input" id="cliEmail" type="email" placeholder="cliente@email.com">
+            </div>
+            <div class="modal-field">
+                <label class="modal-label">Estado</label>
+                <select class="modal-input" id="cliStatus">
+                    <option value="activo">Activo</option>
+                    <option value="prospecto">Prospecto</option>
+                    <option value="cerrado">Cerrado</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Dirección</label>
+            <input class="modal-input" id="cliAddress" type="text" placeholder="Calle, número, ciudad">
+        </div>
+        <div class="modal-field">
+            <label class="modal-label">Notas</label>
+            <textarea class="modal-input" id="cliNotes" rows="3" style="resize:vertical" placeholder="Necesidades, observaciones, información importante..."></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeClientModal()">Cancelar</button>
+            <button class="btn btn-danger" id="cliDeleteBtn" style="display:none" onclick="deleteClientFromModal()">Eliminar</button>
+            <button class="btn btn-primary" onclick="confirmClient()">Guardar cliente</button>
         </div>
     </div>
 </div>
